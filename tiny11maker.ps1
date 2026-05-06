@@ -166,9 +166,21 @@ Start-LotusProcess $directXSetup '/silent'
 $vcRoot = Join-Path $root 'VCRedist'
 if (Test-Path $vcRoot) {
     Get-ChildItem -Path $vcRoot -Recurse -Filter '*.exe' |
-        ForEach-Object { Start-LotusProcess $_.FullName '/install /quiet /norestart' }
+        ForEach-Object {
+            if ($_.Name -match 'vc_redist|2015|2017|2019|2022|2026') {
+                Start-LotusProcess $_.FullName '/install /quiet /norestart'
+            } else {
+                Start-LotusProcess $_.FullName '/q /norestart'
+            }
+        }
     Get-ChildItem -Path $vcRoot -Recurse -Filter '*.msi' |
         ForEach-Object { Start-LotusProcess 'msiexec.exe' "/i `"$($_.FullName)`" /qn /norestart" }
+}
+
+$dotNetRoot = Join-Path $root 'DotNet'
+if (Test-Path $dotNetRoot) {
+    Get-ChildItem -Path $dotNetRoot -Recurse -Filter '*.exe' |
+        ForEach-Object { Start-LotusProcess $_.FullName '/install /quiet /norestart' }
 }
 
 $pwshMsi = Get-ChildItem -Path (Join-Path $root 'PowerShell') -Recurse -Filter 'PowerShell-*-win-*.msi' |
@@ -179,15 +191,22 @@ if ($pwshMsi) {
 }
 
 $officeRoot = Join-Path $root 'Office2016Mondo'
-$officeSetup = Join-Path $officeRoot 'setup.exe'
 $officeConfig = Join-Path $officeRoot 'configuration.xml'
-if ((Test-Path $officeSetup) -and (Test-Path $officeConfig)) {
-    Start-LotusProcess $officeSetup "/configure `"$officeConfig`""
-}
-
-$activationHook = Join-Path $root 'Activation\Activate-Legal.cmd'
-if (Test-Path $activationHook) {
-    Start-LotusProcess 'cmd.exe' "/c `"$activationHook`""
+if (Test-Path $officeConfig) {
+    $officeInstallScript = Join-Path $officeRoot 'InstallOfficeAfterLogon.cmd'
+    $officeInstallContent = @"
+@echo off
+set OFFICE_ROOT=%WINDIR%\Setup\Lotus\Office2016Mondo
+set OFFICE_LOG=%WINDIR%\Setup\Lotus\Office2016MondoInstall.log
+if not exist "%OFFICE_ROOT%\setup.exe" (
+    if exist "%OFFICE_ROOT%\officedeploymenttool.exe" "%OFFICE_ROOT%\officedeploymenttool.exe" /quiet /extract:"%OFFICE_ROOT%"
+)
+if exist "%OFFICE_ROOT%\setup.exe" "%OFFICE_ROOT%\setup.exe" /configure "%OFFICE_ROOT%\configuration.xml" >> "%OFFICE_LOG%" 2>&1
+schtasks.exe /Delete /TN "Lotus Office 2016 Mondo Online Install" /F >nul 2>&1
+exit /b 0
+"@
+    Set-Content -Path $officeInstallScript -Value $officeInstallContent -Encoding ASCII
+    & schtasks.exe /Create /TN 'Lotus Office 2016 Mondo Online Install' /SC ONLOGON /DELAY 0001:00 /RL HIGHEST /RU SYSTEM /TR "`"$officeInstallScript`"" /F | Out-Null
 }
 '@
 
