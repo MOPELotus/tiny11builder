@@ -67,6 +67,23 @@ function Remove-RegistryValue {
 	}
 }
 
+function Set-RegistryDefaultValue {
+    param (
+        [string]$path,
+        [string]$value
+    )
+    try {
+        if ($value -eq '') {
+            & 'reg' 'add' $path '/ve' '/f' | Out-Null
+        } else {
+            & 'reg' 'add' $path '/ve' '/d' $value '/f' | Out-Null
+        }
+        Write-Output "Set default registry value: $path"
+    } catch {
+        Write-Output "Error setting default registry value: $_"
+    }
+}
+
 #---------[ Execution ]---------#
 # Check if PowerShell execution is restricted
 if ((Get-ExecutionPolicy) -eq 'Restricted') {
@@ -337,6 +354,132 @@ Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Teams' 'DisableInstallation
 Write-Output "Prevent installation of New Outlook":
 Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\Windows Mail' 'PreventRun' 'REG_DWORD' '1'
 
+Write-Output "Applying Lotus desktop, privacy, update, and security defaults:"
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' 'NoAutoUpdate' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' 'AUOptions' 'REG_DWORD' '2'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' 'ScheduledInstallDay' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' 'ScheduledInstallTime' 'REG_DWORD' '3'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsUpdate' 'SetDisableUXWUAccess' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsUpdate' 'ExcludeWUDriversInQualityUpdate' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization' 'DODownloadMode' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\DeliveryOptimization\Config' 'DODownloadMode' 'REG_DWORD' '0'
+
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows Defender' 'DisableAntiSpyware' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows Defender' 'DisableRealtimeMonitoring' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows Defender' 'DisableSpecialRunningModes' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows Defender' 'ServiceKeepAlive' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection' 'DisableBehaviorMonitoring' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection' 'DisableOnAccessProtection' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection' 'DisableRealtimeMonitoring' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows Defender\Real-Time Protection' 'DisableScanOnRealtimeEnable' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows Defender\Spynet' 'SpynetReporting' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows Defender\Spynet' 'SubmitSamplesConsent' 'REG_DWORD' '2'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\System' 'EnableSmartScreen' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer' 'SmartScreenEnabled' 'REG_SZ' 'Off'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Edge' 'SmartScreenEnabled' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Edge' 'SmartScreenPuaEnabled' 'REG_DWORD' '0'
+
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' 'EnableLUA' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' 'ConsentPromptBehaviorAdmin' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' 'PromptOnSecureDesktop' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System' 'EnableFirstLogonAnimation' 'REG_DWORD' '0'
+
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'LaunchTo' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'HideFileExt' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'ShowSecondsInSystemClock' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'TaskbarAl' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'TaskbarDa' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'TaskbarGlomLevel' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'MMTaskbarGlomLevel' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'SearchboxTaskbarMode' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'ShowTaskViewButton' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'Start_Layout' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer' 'link' 'REG_BINARY' '00000000'
+Set-RegistryDefaultValue 'HKLM\zNTUSER\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32' ''
+
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons' '29' 'REG_EXPAND_SZ' '%windir%\System32\imageres.dll,-17'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer' 'NoDriveTypeAutoRun' 'REG_DWORD' '255'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers' 'DisableAutoplay' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zNTUSER\Control Panel\Desktop' 'AutoEndTasks' 'REG_SZ' '1'
+Set-RegistryValue 'HKLM\zNTUSER\Control Panel\Desktop' 'HungAppTimeout' 'REG_SZ' '2000'
+Set-RegistryValue 'HKLM\zNTUSER\Control Panel\Desktop' 'WaitToKillAppTimeout' 'REG_SZ' '2000'
+Set-RegistryValue 'HKLM\zNTUSER\Control Panel\Desktop' 'MenuShowDelay' 'REG_SZ' '0'
+Set-RegistryValue 'HKLM\zSYSTEM\ControlSet001\Control' 'WaitToKillServiceTimeout' 'REG_SZ' '2000'
+Set-RegistryValue 'HKLM\zSYSTEM\ControlSet001\Control\Power' 'HibernateEnabled' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zSYSTEM\ControlSet001\Control\Power' 'HiberFileSizePercent' 'REG_DWORD' '0'
+
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\PushNotifications' 'ToastEnabled' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings' 'NOC_GLOBAL_SETTING_ALLOW_TOASTS_ABOVE_LOCK' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Notifications\Settings' 'NOC_GLOBAL_SETTING_ALLOW_CRITICAL_TOASTS_ABOVE_LOCK' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy' '01' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy' '04' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy' '08' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\InputMethod\Settings\CHS' 'Default Mode' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zNTUSER\Keyboard Layout\Preload' '1' 'REG_SZ' '00000804'
+
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableWindowsSpotlightFeatures' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableSpotlightCollectionOnDesktop' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'RotatingLockScreenEnabled' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'RotatingLockScreenOverlayEnabled' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'SubscribedContent-338387Enabled' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'SubscribedContent-338389Enabled' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'SubscribedContent-338393Enabled' 'REG_DWORD' '0'
+
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\AppPrivacy' 'LetAppsAccessAccountInfo' 'REG_DWORD' '2'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\AppPrivacy' 'LetAppsAccessCallHistory' 'REG_DWORD' '2'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\AppPrivacy' 'LetAppsAccessContacts' 'REG_DWORD' '2'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\AppPrivacy' 'LetAppsAccessDiagnosticInfo' 'REG_DWORD' '2'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\AppPrivacy' 'LetAppsAccessEmail' 'REG_DWORD' '2'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\AppPrivacy' 'LetAppsGetDiagnosticInfo' 'REG_DWORD' '2'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\AppPrivacy' 'LetAppsAccessLocation' 'REG_DWORD' '2'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\AppPrivacy' 'LetAppsAccessMessaging' 'REG_DWORD' '2'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\AppPrivacy' 'LetAppsAccessMotion' 'REG_DWORD' '2'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\AppPrivacy' 'LetAppsAccessNotifications' 'REG_DWORD' '2'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\AppPrivacy' 'LetAppsAccessRadios' 'REG_DWORD' '2'
+Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\AppPrivacy' 'LetAppsAccessTasks' 'REG_DWORD' '2'
+
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows Photo Viewer\Capabilities\FileAssociations' '.bmp' 'REG_SZ' 'PhotoViewer.FileAssoc.Tiff'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows Photo Viewer\Capabilities\FileAssociations' '.dib' 'REG_SZ' 'PhotoViewer.FileAssoc.Tiff'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows Photo Viewer\Capabilities\FileAssociations' '.gif' 'REG_SZ' 'PhotoViewer.FileAssoc.Tiff'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows Photo Viewer\Capabilities\FileAssociations' '.jfif' 'REG_SZ' 'PhotoViewer.FileAssoc.Tiff'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows Photo Viewer\Capabilities\FileAssociations' '.jpe' 'REG_SZ' 'PhotoViewer.FileAssoc.Tiff'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows Photo Viewer\Capabilities\FileAssociations' '.jpeg' 'REG_SZ' 'PhotoViewer.FileAssoc.Tiff'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows Photo Viewer\Capabilities\FileAssociations' '.jpg' 'REG_SZ' 'PhotoViewer.FileAssoc.Tiff'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows Photo Viewer\Capabilities\FileAssociations' '.png' 'REG_SZ' 'PhotoViewer.FileAssoc.Tiff'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows Photo Viewer\Capabilities\FileAssociations' '.tif' 'REG_SZ' 'PhotoViewer.FileAssoc.Tiff'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows Photo Viewer\Capabilities\FileAssociations' '.tiff' 'REG_SZ' 'PhotoViewer.FileAssoc.Tiff'
+
+$takeOwnershipText = -join ([char[]](31649,29702,21592,21462,24471,25152,26377,26435))
+Set-RegistryValue 'HKLM\zSOFTWARE\Classes\*\shell\LotusTakeOwnership' 'MUIVerb' 'REG_SZ' $takeOwnershipText
+Set-RegistryValue 'HKLM\zSOFTWARE\Classes\*\shell\LotusTakeOwnership' 'HasLUAShield' 'REG_SZ' '1'
+Set-RegistryDefaultValue 'HKLM\zSOFTWARE\Classes\*\shell\LotusTakeOwnership\command' 'cmd.exe /c takeown /f "%1" && icacls "%1" /grant *S-1-5-32-544:F'
+Set-RegistryValue 'HKLM\zSOFTWARE\Classes\Directory\shell\LotusTakeOwnership' 'MUIVerb' 'REG_SZ' $takeOwnershipText
+Set-RegistryValue 'HKLM\zSOFTWARE\Classes\Directory\shell\LotusTakeOwnership' 'HasLUAShield' 'REG_SZ' '1'
+Set-RegistryDefaultValue 'HKLM\zSOFTWARE\Classes\Directory\shell\LotusTakeOwnership\command' 'cmd.exe /c takeown /f "%1" /r /d y && icacls "%1" /grant *S-1-5-32-544:F /t'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'DontUsePowerShellOnWinX' 'REG_DWORD' '0'
+
+$servicesToDisable = @(
+    'DiagTrack',
+    'dmwappushservice',
+    'DoSvc',
+    'MapsBroker',
+    'PcaSvc',
+    'RetailDemo',
+    'SecurityHealthService',
+    'Sense',
+    'WdFilter',
+    'WdNisDrv',
+    'WdNisSvc',
+    'WerSvc',
+    'WinDefend'
+)
+
+foreach ($serviceName in $servicesToDisable) {
+    if (Test-Path "HKLM:\zSYSTEM\ControlSet001\Services\$serviceName") {
+        Set-RegistryValue "HKLM\zSYSTEM\ControlSet001\Services\$serviceName" 'Start' 'REG_DWORD' '4'
+    }
+}
+
 Write-Host "Deleting scheduled task definition files..."
 $tasksPath = "$ScratchDisk\scratchdir\Windows\System32\Tasks"
 
@@ -354,7 +497,18 @@ Remove-Item -Path "$tasksPath\Microsoft\Windows\Chkdsk\Proxy" -Force -ErrorActio
 
 # Windows Error Reporting (QueueReporting)
 Remove-Item -Path "$tasksPath\Microsoft\Windows\Windows Error Reporting\QueueReporting" -Force -ErrorAction SilentlyContinue
+
+# Extra background noise in the Lotus profile
+Remove-Item -Path "$tasksPath\Microsoft\Windows\Maps" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "$tasksPath\Microsoft\Windows\Windows Defender" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "$tasksPath\Microsoft\Windows\WindowsUpdate\Scheduled Start" -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "$tasksPath\Microsoft\Windows\UpdateOrchestrator\Schedule Scan" -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "$tasksPath\Microsoft\Windows\UpdateOrchestrator\USO_UxBroker" -Force -ErrorAction SilentlyContinue
 Write-Host "Task files have been deleted."
+Write-Host "Removing retail demo and default Edge/IE leftovers..."
+Remove-Item -Path "$ScratchDisk\scratchdir\ProgramData\Microsoft\Windows\RetailDemo" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "$ScratchDisk\scratchdir\Users\Default\AppData\Local\Microsoft\Windows\RetailDemo" -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item -Path "$ScratchDisk\scratchdir\Users\Default\Favorites\Microsoft Websites" -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host "Unmounting Registry..."
 reg unload HKLM\zCOMPONENTS | Out-Null
 reg unload HKLM\zDEFAULT | Out-Null
