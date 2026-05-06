@@ -339,18 +339,29 @@ $packages = & 'dism' '/English' "/image:$($ScratchDisk)\scratchdir" '/Get-Provis
         }
     }
 
-$uwpKeepPrefixes = @(
+$uwpProtectedPrefixes = @(
     'Microsoft.DesktopAppInstaller',
     'Microsoft.GamingApp',
     'Microsoft.GamingServices',
+    'Microsoft.MSPaint',
     'Microsoft.NET.Native.Framework',
     'Microsoft.NET.Native.Runtime',
+    'Microsoft.Paint',
+    'Microsoft.ScreenSketch',
     'Microsoft.Services.Store.Engagement',
     'Microsoft.StorePurchaseApp',
     'Microsoft.UI.Xaml',
     'Microsoft.VCLibs',
+    'Microsoft.Windows.Photos',
     'Microsoft.WindowsAppRuntime',
+    'Microsoft.WindowsAlarms',
+    'Microsoft.WindowsCalculator',
+    'Microsoft.WindowsCamera',
+    'Microsoft.WindowsMaps',
+    'Microsoft.WindowsNotepad',
+    'Microsoft.WindowsSoundRecorder',
     'Microsoft.WindowsStore',
+    'Microsoft.WindowsTerminal',
     'Microsoft.Xbox',
     'Microsoft.XboxApp',
     'Microsoft.XboxGameCallableUI',
@@ -360,16 +371,63 @@ $uwpKeepPrefixes = @(
     'Microsoft.XboxSpeechToTextOverlay'
 )
 
+$uwpRemovePrefixes = @(
+    'AppUp.IntelManagementandSecurityStatus',
+    'Clipchamp.Clipchamp',
+    'DolbyLaboratories.DolbyAccess',
+    'DolbyLaboratories.DolbyDigitalPlusDecoderOEM',
+    'Microsoft.BingNews',
+    'Microsoft.BingSearch',
+    'Microsoft.BingWeather',
+    'Microsoft.Copilot',
+    'Microsoft.GetHelp',
+    'Microsoft.Getstarted',
+    'Microsoft.Microsoft3DViewer',
+    'Microsoft.MicrosoftOfficeHub',
+    'Microsoft.MicrosoftSolitaireCollection',
+    'Microsoft.MixedReality.Portal',
+    'Microsoft.Office.OneNote',
+    'Microsoft.OfficePushNotificationUtility',
+    'Microsoft.OutlookForWindows',
+    'Microsoft.People',
+    'Microsoft.PowerAutomateDesktop',
+    'Microsoft.SkypeApp',
+    'Microsoft.StartExperiencesApp',
+    'Microsoft.Todos',
+    'Microsoft.Wallet',
+    'Microsoft.Windows.CrossDevice',
+    'Microsoft.Windows.Copilot',
+    'Microsoft.Windows.DevHome',
+    'Microsoft.Windows.Teams',
+    'Microsoft.WindowsFeedbackHub',
+    'Microsoft.YourPhone',
+    'Microsoft.ZuneMusic',
+    'Microsoft.ZuneVideo',
+    'MicrosoftCorporationII.MicrosoftFamily',
+    'MicrosoftCorporationII.QuickAssist',
+    'MicrosoftTeams',
+    'MSTeams'
+)
+
 $packagesToRemove = $packages | Where-Object {
     $packageName = $_
-    $keepPackage = $false
-    foreach ($prefix in $uwpKeepPrefixes) {
+    $protectedPackage = $false
+    foreach ($prefix in $uwpProtectedPrefixes) {
         if ($packageName -like "$prefix*") {
-            $keepPackage = $true
+            $protectedPackage = $true
             break
         }
     }
-    -not $keepPackage
+
+    $removePackage = $false
+    foreach ($prefix in $uwpRemovePrefixes) {
+        if ((-not $protectedPackage) -and ($packageName -like "$prefix*")) {
+            $removePackage = $true
+            break
+        }
+    }
+
+    $removePackage
 }
 foreach ($package in $packagesToRemove) {
     Write-Output "Removing provisioned UWP package: $package"

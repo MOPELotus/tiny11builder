@@ -46,7 +46,7 @@ C:/path/to/your/tiny11/script.ps1 -ISO <letter> -SCRATCH <letter>
 
 ## Lotus profile additions:
 - Creates a local administrator account named `Lotus`, hides Microsoft account OOBE, and stages the answer file both at ISO root and inside the image for PE-based third-party installers.
-- Removes provisioned UWP apps by default while keeping Microsoft Store, App Installer, Xbox/game components, and common Store dependencies.
+- Removes only explicit promotional, cloud, and duplicate UWP packages. Store, App Installer, Xbox/game components, Store dependencies, and system utility UWP apps such as Calculator, Snipping Tool, Photos, Paint, Camera, Sound Recorder, Maps, Alarms, Notepad, and Terminal are kept unless a reliable Win32 fallback is staged.
 - Removes Edge and OneDrive, enables .NET Framework 3.5 when the ISO SxS source is available, and keeps classic Win32 media support enabled.
 - Applies privacy, notification, taskbar, Explorer, old context menu, storage sense, update notification, Delivery Optimization, Defender, SmartScreen, autoplay, hibernation, and startup/shutdown defaults.
 - Copies optional files from `payload/` into the image and runs them once via `SetupComplete.cmd` for MiSans, DirectX 9.0c, VC++ redistributables, PowerShell MSI, Office 2016 Mondo, and a legal activation hook.
