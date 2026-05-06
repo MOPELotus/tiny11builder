@@ -84,6 +84,124 @@ function Set-RegistryDefaultValue {
     }
 }
 
+function Add-LotusSetupPayload {
+    param (
+        [string]$MountPath,
+        [string]$PayloadSource
+    )
+
+    $setupRoot = Join-Path $MountPath 'Windows\Setup'
+    $scriptsRoot = Join-Path $setupRoot 'Scripts'
+    $lotusRoot = Join-Path $setupRoot 'Lotus'
+    New-Item -ItemType Directory -Force -Path $scriptsRoot, $lotusRoot | Out-Null
+
+    if (Test-Path -Path $PayloadSource) {
+        Write-Output "Staging Lotus payload from $PayloadSource"
+        Copy-Item -Path (Join-Path $PayloadSource '*') -Destination $lotusRoot -Recurse -Force -ErrorAction SilentlyContinue
+    } else {
+        Write-Output "No payload folder found at $PayloadSource. Runtime, font, Office and PowerShell installers will be skipped unless added later."
+    }
+
+    $postInstallScript = @'
+$ErrorActionPreference = 'SilentlyContinue'
+$root = Join-Path $env:WINDIR 'Setup\Lotus'
+
+function Start-LotusProcess {
+    param (
+        [string]$FilePath,
+        [string]$ArgumentList
+    )
+
+    if ((Test-Path $FilePath) -or $FilePath -in @('msiexec.exe', 'cmd.exe')) {
+        Write-Output "Running: $FilePath $ArgumentList"
+        $process = Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -Wait -PassThru -WindowStyle Hidden
+        Write-Output "Exit code: $($process.ExitCode)"
+    }
+}
+
+if (Test-Path 'D:\') {
+    New-Item -ItemType Directory -Force -Path 'D:\Users' | Out-Null
+}
+
+try {
+    if (-not (Get-LocalUser -Name 'Lotus' -ErrorAction SilentlyContinue)) {
+        New-LocalUser -Name 'Lotus' -NoPassword -AccountNeverExpires -FullName 'Lotus' | Out-Null
+    }
+
+    $adminGroupName = Get-LocalGroup |
+        Where-Object { $_.SID.Value -eq 'S-1-5-32-544' } |
+        Select-Object -First 1 -ExpandProperty Name
+
+    if ($adminGroupName) {
+        Add-LocalGroupMember -Group $adminGroupName -Member 'Lotus' -ErrorAction SilentlyContinue
+    }
+
+    Get-LocalUser |
+        Where-Object { $_.SID.Value -match '-500$' -and $_.Name -ne 'Lotus' } |
+        Disable-LocalUser
+} catch {
+    Write-Output "Local account fallback failed: $_"
+}
+
+powercfg.exe /hibernate off | Out-Null
+
+$fontRoot = Join-Path $root 'Fonts'
+if (Test-Path $fontRoot) {
+    $fontRegistry = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts'
+    Get-ChildItem -Path $fontRoot -Recurse -File |
+        Where-Object { $_.Extension -in '.ttf', '.ttc', '.otf' } |
+        ForEach-Object {
+            $fontName = $_.BaseName
+            $fontType = if ($_.Extension -eq '.otf') { 'OpenType' } else { 'TrueType' }
+            $targetPath = Join-Path $env:WINDIR "Fonts\$($_.Name)"
+            Copy-Item -Path $_.FullName -Destination $targetPath -Force
+            New-ItemProperty -Path $fontRegistry -Name "$fontName ($fontType)" -Value $_.Name -PropertyType String -Force | Out-Null
+            Write-Output "Installed font: $($_.Name)"
+        }
+}
+
+$directXSetup = Join-Path $root 'DirectX\DXSETUP.exe'
+Start-LotusProcess $directXSetup '/silent'
+
+$vcRoot = Join-Path $root 'VCRedist'
+if (Test-Path $vcRoot) {
+    Get-ChildItem -Path $vcRoot -Recurse -Filter '*.exe' |
+        ForEach-Object { Start-LotusProcess $_.FullName '/install /quiet /norestart' }
+    Get-ChildItem -Path $vcRoot -Recurse -Filter '*.msi' |
+        ForEach-Object { Start-LotusProcess 'msiexec.exe' "/i `"$($_.FullName)`" /qn /norestart" }
+}
+
+$pwshMsi = Get-ChildItem -Path (Join-Path $root 'PowerShell') -Recurse -Filter 'PowerShell-*-win-*.msi' |
+    Sort-Object LastWriteTime -Descending |
+    Select-Object -First 1
+if ($pwshMsi) {
+    Start-LotusProcess 'msiexec.exe' "/i `"$($pwshMsi.FullName)`" /qn /norestart ADD_EXPLORER_CONTEXT_MENU_OPENPOWERSHELL=1 ADD_FILE_CONTEXT_MENU_RUNPOWERSHELL=1 ENABLE_PSREMOTING=0 REGISTER_MANIFEST=1 USE_MU=0 ENABLE_MU=0 ADD_PATH=1"
+}
+
+$officeRoot = Join-Path $root 'Office2016Mondo'
+$officeSetup = Join-Path $officeRoot 'setup.exe'
+$officeConfig = Join-Path $officeRoot 'configuration.xml'
+if ((Test-Path $officeSetup) -and (Test-Path $officeConfig)) {
+    Start-LotusProcess $officeSetup "/configure `"$officeConfig`""
+}
+
+$activationHook = Join-Path $root 'Activation\Activate-Legal.cmd'
+if (Test-Path $activationHook) {
+    Start-LotusProcess 'cmd.exe' "/c `"$activationHook`""
+}
+'@
+
+    $setupComplete = @'
+@echo off
+set LOG=%WINDIR%\Setup\Lotus\LotusPostInstall.log
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%WINDIR%\Setup\Lotus\LotusPostInstall.ps1" >> "%LOG%" 2>&1
+exit /b 0
+'@
+
+    Set-Content -Path (Join-Path $lotusRoot 'LotusPostInstall.ps1') -Value $postInstallScript -Encoding ASCII
+    Set-Content -Path (Join-Path $scriptsRoot 'SetupComplete.cmd') -Value $setupComplete -Encoding ASCII
+}
+
 #---------[ Execution ]---------#
 # Check if PowerShell execution is restricted
 if ((Get-ExecutionPolicy) -eq 'Restricted') {
@@ -314,6 +432,9 @@ Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\CloudContent' 'Disa
 Write-Output "Enabling Local Accounts on OOBE:"
 Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\OOBE' 'BypassNRO' 'REG_DWORD' '1'
 Copy-Item -Path "$PSScriptRoot\autounattend.xml" -Destination "$ScratchDisk\scratchdir\Windows\System32\Sysprep\autounattend.xml" -Force | Out-Null
+New-Item -ItemType Directory -Force -Path "$ScratchDisk\scratchdir\Windows\Panther" | Out-Null
+Copy-Item -Path "$PSScriptRoot\autounattend.xml" -Destination "$ScratchDisk\scratchdir\Windows\Panther\Unattend.xml" -Force | Out-Null
+Add-LotusSetupPayload -MountPath "$ScratchDisk\scratchdir" -PayloadSource "$PSScriptRoot\payload"
 
 Write-Output "Disabling Reserved Storage:"
 Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\ReserveManager' 'ShippedWithReserves' 'REG_DWORD' '0'
