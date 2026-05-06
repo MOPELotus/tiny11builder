@@ -44,6 +44,17 @@ C:/path/to/your/tiny11/script.ps1 -ISO <letter> -SCRATCH <letter>
 
 ---
 
+## Lotus profile additions:
+- Creates a local administrator account named `Lotus`, hides Microsoft account OOBE, and stages the answer file both at ISO root and inside the image for PE-based third-party installers.
+- Removes provisioned UWP apps by default while keeping Microsoft Store, App Installer, Xbox/game components, and common Store dependencies.
+- Removes Edge and OneDrive, enables .NET Framework 3.5 when the ISO SxS source is available, and keeps classic Win32 media support enabled.
+- Applies privacy, notification, taskbar, Explorer, old context menu, storage sense, update notification, Delivery Optimization, Defender, SmartScreen, autoplay, hibernation, and startup/shutdown defaults.
+- Copies optional files from `payload/` into the image and runs them once via `SetupComplete.cmd` for MiSans, DirectX 9.0c, VC++ redistributables, PowerShell MSI, Office 2016 Mondo, and a legal activation hook.
+
+No activation bypass is bundled. `payload/Activation/Activate-Legal.cmd` is only a placeholder for legitimate keys or authorized activation infrastructure.
+
+---
+
 ## What is removed:
 <table>
   <tbody>
@@ -57,7 +68,6 @@ C:/path/to/your/tiny11/script.ps1 -ISO <letter> -SCRATCH <letter>
           <li>Clipchamp</li>
           <li>News</li>
           <li>Weather</li>
-          <li>Xbox</li>
           <li>GetHelp</li>
           <li>GetStarted</li>
           <li>Office Hub</li>
@@ -93,7 +103,7 @@ C:/path/to/your/tiny11/script.ps1 -ISO <letter> -SCRATCH <letter>
 </table>
 
 Keep in mind that **you cannot add back features in tiny11 core**! <br>
-You will be asked during image creation if you want to enable .net 3.5 support!
+The regular Lotus profile enables .NET Framework 3.5 automatically when the source ISO contains `sources\sxs`; tiny11 core still asks during image creation.
 
 ---
 

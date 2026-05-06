@@ -231,8 +231,10 @@ if (! $myWindowsPrincipal.IsInRole($adminRole))
     exit
 }
 
+$DownloadedAutounattend = $false
 if (-not (Test-Path -Path "$PSScriptRoot/autounattend.xml")) {
     Invoke-RestMethod "https://raw.githubusercontent.com/ntdevlabs/tiny11builder/refs/heads/main/autounattend.xml" -OutFile "$PSScriptRoot/autounattend.xml"
+    $DownloadedAutounattend = $true
 }
 
 # Start the transcript and prepare the window
@@ -372,6 +374,68 @@ $packagesToRemove = $packages | Where-Object {
 foreach ($package in $packagesToRemove) {
     Write-Output "Removing provisioned UWP package: $package"
     & 'dism' '/English' "/image:$($ScratchDisk)\scratchdir" '/Remove-ProvisionedAppxPackage' "/PackageName:$package"
+}
+
+Write-Output "Enabling .NET Framework 3.5 and classic Win32 media components:"
+if (Test-Path "$DriveLetter\sources\sxs") {
+    & 'dism' '/English' "/Image:$($ScratchDisk)\scratchdir" '/Enable-Feature' '/FeatureName:NetFx3' '/All' "/Source:$DriveLetter\sources\sxs" '/LimitAccess'
+} else {
+    Write-Output "SxS source folder not found. Skipping .NET Framework 3.5."
+}
+& 'dism' '/English' "/Image:$($ScratchDisk)\scratchdir" '/Enable-Feature' '/FeatureName:WindowsMediaPlayer' '/All' '/NoRestart'
+
+Write-Output "Removing rarely used optional capabilities and packages:"
+$capabilityPatterns = @(
+    'App.Support.QuickAssist*',
+    'Browser.InternetExplorer*',
+    'MathRecognizer*',
+    'Microsoft.Windows.WordPad*',
+    'StepsRecorder*'
+)
+
+$capabilities = @()
+$currentCapability = $null
+foreach ($line in (& 'dism' '/English' "/Image:$($ScratchDisk)\scratchdir" '/Get-Capabilities')) {
+    if ($line -match 'Capability Identity : (.*)') {
+        $currentCapability = $matches[1].Trim()
+        continue
+    }
+    if (($line -match 'State : Installed') -and $currentCapability) {
+        $capabilities += $currentCapability
+        $currentCapability = $null
+    }
+}
+
+foreach ($pattern in $capabilityPatterns) {
+    $capabilities |
+        Where-Object { $_ -like $pattern } |
+        ForEach-Object {
+            Write-Output "Removing capability: $_"
+            & 'dism' '/English' "/Image:$($ScratchDisk)\scratchdir" '/Remove-Capability' "/CapabilityName:$_"
+        }
+}
+
+$packagePatterns = @(
+    'Microsoft-Windows-InternetExplorer-Optional-Package~31bf3856ad364e35',
+    'Microsoft-Windows-RetailDemo-OfflineContent-Content-Package~',
+    'Microsoft-Windows-StepsRecorder-Package~',
+    'Microsoft-Windows-TabletPCMath-Package~',
+    'Microsoft-Windows-Wallpaper-Content-Extended-FoD-Package~',
+    'Microsoft-Windows-WordPad-FoD-Package~'
+)
+
+$allPackages = & 'dism' '/English' "/Image:$($ScratchDisk)\scratchdir" '/Get-Packages' '/Format:Table'
+$allPackages = $allPackages -split "`r?`n" | Select-Object -Skip 1
+foreach ($packagePattern in $packagePatterns) {
+    $allPackages |
+        Where-Object { $_ -like "$packagePattern*" } |
+        ForEach-Object {
+            $packageIdentity = ($_.Trim() -split '\s+')[0]
+            if ($packageIdentity) {
+                Write-Output "Removing optional package: $packageIdentity"
+                & 'dism' '/English' "/Image:$($ScratchDisk)\scratchdir" '/Remove-Package' "/PackageName:$packageIdentity"
+            }
+        }
 }
 
 Write-Output "Removing Edge:"
@@ -729,8 +793,12 @@ Get-Volume -DriveLetter $DriveLetter[0] | Get-DiskImage | Dismount-DiskImage
 Write-Output "Iso drive ejected"
 Write-Output "Removing oscdimg.exe..."
 Remove-Item -Path "$PSScriptRoot\oscdimg.exe" -Force -ErrorAction SilentlyContinue
-Write-Output "Removing autounattend.xml..."
-Remove-Item -Path "$PSScriptRoot\autounattend.xml" -Force -ErrorAction SilentlyContinue
+if ($DownloadedAutounattend) {
+    Write-Output "Removing downloaded autounattend.xml..."
+    Remove-Item -Path "$PSScriptRoot\autounattend.xml" -Force -ErrorAction SilentlyContinue
+} else {
+    Write-Output "Keeping repository autounattend.xml."
+}
 
 Write-Output "Cleanup check :"
 if (Test-Path -Path "$ScratchDisk\tiny11") {
@@ -766,7 +834,7 @@ if (Test-Path -Path "$PSScriptRoot\oscdimg.exe") {
 } else {
     Write-Output "oscdimg.exe does not exist. No action needed."
 }
-if (Test-Path -Path "$PSScriptRoot\autounattend.xml") {
+if ($DownloadedAutounattend -and (Test-Path -Path "$PSScriptRoot\autounattend.xml")) {
     Write-Output "autounattend.xml still exists. Attempting to remove it again..."
     Remove-Item -Path "$PSScriptRoot\autounattend.xml" -Force -ErrorAction SilentlyContinue
     if (Test-Path -Path "$PSScriptRoot\autounattend.xml") {
@@ -775,7 +843,7 @@ if (Test-Path -Path "$PSScriptRoot\autounattend.xml") {
         Write-Output "autounattend.xml removed successfully."
     }
 } else {
-    Write-Output "autounattend.xml does not exist. No action needed."
+    Write-Output "autounattend.xml cleanup skipped or already complete."
 }
 
 # Stop the transcript
