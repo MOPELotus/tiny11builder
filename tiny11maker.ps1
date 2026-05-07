@@ -807,6 +807,10 @@ Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\InputPersonalization' 'Restri
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\InputPersonalization' 'RestrictImplicitTextCollection' 'REG_DWORD' '1'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\InputPersonalization\TrainedDataStore' 'HarvestContacts' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Personalization\Settings' 'AcceptedPrivacyPolicy' 'REG_DWORD' '0'
+$personalDataExportKey = 'Software\Microsoft\Windows\CurrentVersion\CloudExperienceHost\Intent\PersonalDataExport'
+foreach ($userHive in @('HKLM\zNTUSER', 'HKLM\zDEFAULT')) {
+    Set-RegistryValue "$userHive\$personalDataExportKey" 'PDEShown' 'REG_DWORD' '2'
+}
 Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\DataCollection' 'AllowTelemetry' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zSYSTEM\ControlSet001\Services\dmwappushservice' 'Start' 'REG_DWORD' '4'
 ## Prevents installation of DevHome and Outlook
