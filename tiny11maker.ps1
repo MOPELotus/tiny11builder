@@ -283,6 +283,34 @@ function Start-LotusProcess {
     }
 }
 
+function Get-VCRedistArguments {
+    param (
+        [string]$InstallerName
+    )
+
+    if ($InstallerName -match '2005') {
+        return '/q'
+    }
+
+    if ($InstallerName -match '2008') {
+        return '/q'
+    }
+
+    if ($InstallerName -match '2010') {
+        return '/q /norestart'
+    }
+
+    if ($InstallerName -match '2012|2013') {
+        return '/quiet /norestart'
+    }
+
+    if ($InstallerName -match 'vc_redist|2015|2017|2019|2022|2026') {
+        return '/install /quiet /norestart'
+    }
+
+    return '/quiet /norestart'
+}
+
 if (Test-Path 'D:\') {
     New-Item -ItemType Directory -Force -Path 'D:\Users' | Out-Null
 }
@@ -331,11 +359,7 @@ $vcRoot = Join-Path $root 'VCRedist'
 if (Test-Path $vcRoot) {
     Get-ChildItem -Path $vcRoot -Recurse -Filter '*.exe' |
         ForEach-Object {
-            if ($_.Name -match 'vc_redist|2015|2017|2019|2022|2026') {
-                Start-LotusProcess $_.FullName '/install /quiet /norestart'
-            } else {
-                Start-LotusProcess $_.FullName '/q /norestart'
-            }
+            Start-LotusProcess $_.FullName (Get-VCRedistArguments $_.Name)
         }
     Get-ChildItem -Path $vcRoot -Recurse -Filter '*.msi' |
         ForEach-Object { Start-LotusProcess 'msiexec.exe' "/i `"$($_.FullName)`" /qn /norestart" }
