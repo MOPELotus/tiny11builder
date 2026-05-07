@@ -311,9 +311,35 @@ function Get-VCRedistArguments {
     return '/quiet /norestart'
 }
 
-if (Test-Path 'D:\') {
-    New-Item -ItemType Directory -Force -Path 'D:\Users' | Out-Null
+function Set-LotusProfileRoot {
+    $profilesRoot = 'D:\Users'
+    if (-not (Test-Path 'D:\')) {
+        Write-Output 'D: drive not found. Keeping the default profile root.'
+        return
+    }
+
+    New-Item -ItemType Directory -Force -Path $profilesRoot | Out-Null
+
+    $profileList = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList'
+    New-Item -Path $profileList -Force | Out-Null
+    New-ItemProperty -Path $profileList -Name 'ProfilesDirectory' -PropertyType ExpandString -Value $profilesRoot -Force | Out-Null
+    New-ItemProperty -Path $profileList -Name 'Default' -PropertyType ExpandString -Value (Join-Path $profilesRoot 'Default') -Force | Out-Null
+    New-ItemProperty -Path $profileList -Name 'Public' -PropertyType ExpandString -Value (Join-Path $profilesRoot 'Public') -Force | Out-Null
+    Write-Output "Default profile root set to $profilesRoot"
+
+    foreach ($templateName in @('Default', 'Public')) {
+        $source = Join-Path $env:SystemDrive "Users\$templateName"
+        $destination = Join-Path $profilesRoot $templateName
+        if ((Test-Path $source) -and -not (Test-Path $destination)) {
+            & robocopy.exe $source $destination /E /COPYALL /XJ /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
+            Write-Output "Staged profile template: $destination"
+        }
+    }
+
+    attrib.exe +h (Join-Path $profilesRoot 'Default') 2>$null
 }
+
+Set-LotusProfileRoot
 
 try {
     if (-not (Get-LocalUser -Name 'Lotus' -ErrorAction SilentlyContinue)) {
@@ -830,6 +856,9 @@ Write-Output "Prevent installation of New Outlook:"
 Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\Windows Mail' 'PreventRun' 'REG_DWORD' '1'
 
 Write-Output "Applying Lotus desktop, privacy, update, and security defaults:"
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' 'ProfilesDirectory' 'REG_EXPAND_SZ' 'D:\Users'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' 'Default' 'REG_EXPAND_SZ' 'D:\Users\Default'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' 'Public' 'REG_EXPAND_SZ' 'D:\Users\Public'
 Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' 'NoAutoUpdate' 'REG_DWORD' '1'
 Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' 'AUOptions' 'REG_DWORD' '2'
 Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' 'ScheduledInstallDay' 'REG_DWORD' '0'
