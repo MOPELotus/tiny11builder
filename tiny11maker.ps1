@@ -414,18 +414,74 @@ if (Test-Path $officeConfig) {
     $officeInstallScript = Join-Path $officeRoot 'InstallOfficeAfterLogon.cmd'
     $officeInstallContent = @"
 @echo off
+setlocal EnableExtensions EnableDelayedExpansion
 set OFFICE_ROOT=%WINDIR%\Setup\Lotus\Office2016Mondo
 set OFFICE_LOG=%WINDIR%\Setup\Lotus\Office2016MondoInstall.log
-if not exist "%OFFICE_ROOT%\setup.exe" (
-    if exist "%OFFICE_ROOT%\officedeploymenttool.exe" "%OFFICE_ROOT%\officedeploymenttool.exe" /quiet /extract:"%OFFICE_ROOT%"
+set OFFICE_TASK=Lotus Office 2016 Mondo Online Install
+>>"%OFFICE_LOG%" echo.
+>>"%OFFICE_LOG%" echo ==== Office install attempt %DATE% %TIME% ====
+>>"%OFFICE_LOG%" echo OFFICE_ROOT=%OFFICE_ROOT%
+>>"%OFFICE_LOG%" echo USER=%USERNAME%
+if not exist "%OFFICE_ROOT%\configuration.xml" (
+    >>"%OFFICE_LOG%" echo Missing configuration.xml
+    exit /b 2
 )
-if exist "%OFFICE_ROOT%\setup.exe" "%OFFICE_ROOT%\setup.exe" /configure "%OFFICE_ROOT%\configuration.xml" >> "%OFFICE_LOG%" 2>&1
-schtasks.exe /Delete /TN "Lotus Office 2016 Mondo Online Install" /F >nul 2>&1
-exit /b 0
+if not exist "%OFFICE_ROOT%\setup.exe" (
+    if exist "%OFFICE_ROOT%\officedeploymenttool.exe" (
+        >>"%OFFICE_LOG%" echo Extracting Office Deployment Tool...
+        "%OFFICE_ROOT%\officedeploymenttool.exe" /quiet /extract:"%OFFICE_ROOT%" >> "%OFFICE_LOG%" 2>&1
+        set EXTRACT_EXIT=!ERRORLEVEL!
+        >>"%OFFICE_LOG%" echo ODT extract exit code: !EXTRACT_EXIT!
+    ) else (
+        >>"%OFFICE_LOG%" echo Missing officedeploymenttool.exe
+        exit /b 3
+    )
+)
+if not exist "%OFFICE_ROOT%\setup.exe" (
+    >>"%OFFICE_LOG%" echo setup.exe was not extracted.
+    exit /b 4
+)
+>>"%OFFICE_LOG%" echo Running Office setup.exe /configure...
+"%OFFICE_ROOT%\setup.exe" /configure "%OFFICE_ROOT%\configuration.xml" >> "%OFFICE_LOG%" 2>&1
+set INSTALL_EXIT=!ERRORLEVEL!
+>>"%OFFICE_LOG%" echo Office setup exit code: !INSTALL_EXIT!
+if "!INSTALL_EXIT!"=="0" (
+    >>"%OFFICE_LOG%" echo Office setup command completed successfully. Removing retry task.
+    schtasks.exe /Delete /TN "%OFFICE_TASK%" /F >> "%OFFICE_LOG%" 2>&1
+    exit /b 0
+)
+>>"%OFFICE_LOG%" echo Office setup did not report success. Keeping scheduled task for retry on next logon.
+exit /b !INSTALL_EXIT!
 "@
     Set-Content -Path $officeInstallScript -Value $officeInstallContent -Encoding ASCII
-    & schtasks.exe /Create /TN 'Lotus Office 2016 Mondo Online Install' /SC ONLOGON /DELAY 0001:00 /RL HIGHEST /RU SYSTEM /TR "`"$officeInstallScript`"" /F | Out-Null
+    $officeTaskCommand = 'cmd.exe /d /c "%WINDIR%\Setup\Lotus\Office2016Mondo\InstallOfficeAfterLogon.cmd"'
+    & schtasks.exe /Create /TN 'Lotus Office 2016 Mondo Online Install' /SC ONLOGON /DELAY 0002:00 /RL HIGHEST /RU SYSTEM /TR $officeTaskCommand /F |
+        ForEach-Object { Write-Output "Office task: $_" }
+    Write-Output "Office task creation exit code: $LASTEXITCODE"
+    & reg.exe add 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' /v 'LotusOffice2016Mondo' /t REG_SZ /d $officeTaskCommand /f | Out-Null
+    Write-Output "Office RunOnce creation exit code: $LASTEXITCODE"
 }
+
+$storeRepairScript = Join-Path $root 'RepairMicrosoftStore.cmd'
+$storeRepairContent = @"
+@echo off
+setlocal EnableExtensions EnableDelayedExpansion
+set STORE_LOG=%WINDIR%\Setup\Lotus\MicrosoftStoreRepair.log
+>>"%STORE_LOG%" echo.
+>>"%STORE_LOG%" echo ==== Microsoft Store repair %DATE% %TIME% ====
+>>"%STORE_LOG%" echo Checking current Store packages...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Get-AppxPackage -AllUsers | Where-Object Name -match 'Microsoft.WindowsStore|Microsoft.StorePurchaseApp|Microsoft.DesktopAppInstaller' | Format-List Name,PackageFullName,Status" >> "%STORE_LOG%" 2>&1
+>>"%STORE_LOG%" echo Running wsreset -i...
+wsreset.exe -i >> "%STORE_LOG%" 2>&1
+set STORE_EXIT=!ERRORLEVEL!
+>>"%STORE_LOG%" echo wsreset -i exit code: !STORE_EXIT!
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Get-AppxPackage -AllUsers | Where-Object Name -match 'Microsoft.WindowsStore|Microsoft.StorePurchaseApp|Microsoft.DesktopAppInstaller' | Format-List Name,PackageFullName,Status" >> "%STORE_LOG%" 2>&1
+exit /b 0
+"@
+Set-Content -Path $storeRepairScript -Value $storeRepairContent -Encoding ASCII
+$storeRepairCommand = 'cmd.exe /d /c "%WINDIR%\Setup\Lotus\RepairMicrosoftStore.cmd"'
+& reg.exe add 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' /v 'LotusMicrosoftStoreRepair' /t REG_SZ /d $storeRepairCommand /f | Out-Null
+Write-Output "Microsoft Store repair RunOnce creation exit code: $LASTEXITCODE"
 '@
 
     $setupComplete = @'
