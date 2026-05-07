@@ -967,6 +967,15 @@ Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows Photo Viewer\Capabilities\Fi
 Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows Photo Viewer\Capabilities\FileAssociations' '.tif' 'REG_SZ' 'PhotoViewer.FileAssoc.Tiff'
 Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows Photo Viewer\Capabilities\FileAssociations' '.tiff' 'REG_SZ' 'PhotoViewer.FileAssoc.Tiff'
 
+Set-RegistryDefaultValue 'HKLM\zSOFTWARE\Classes\.txt' 'txtfile'
+Set-RegistryValue 'HKLM\zSOFTWARE\Classes\.txt' 'Content Type' 'REG_SZ' 'text/plain'
+Set-RegistryValue 'HKLM\zSOFTWARE\Classes\.txt' 'PerceivedType' 'REG_SZ' 'text'
+Set-RegistryValue 'HKLM\zSOFTWARE\Classes\.txt\ShellNew' 'NullFile' 'REG_SZ' ''
+Set-RegistryValue 'HKLM\zSOFTWARE\Classes\.txt\ShellNew' 'ItemName' 'REG_EXPAND_SZ' '@%SystemRoot%\system32\notepad.exe,-470'
+Set-RegistryDefaultValue 'HKLM\zSOFTWARE\Classes\txtfile' 'Text Document'
+Set-RegistryDefaultValue 'HKLM\zSOFTWARE\Classes\txtfile\DefaultIcon' '%SystemRoot%\system32\imageres.dll,-102'
+Set-RegistryDefaultValue 'HKLM\zSOFTWARE\Classes\txtfile\shell\open\command' '%SystemRoot%\system32\notepad.exe "%1"'
+
 $takeOwnershipText = -join ([char[]](31649,29702,21592,21462,24471,25152,26377,26435))
 Set-RegistryValue 'HKLM\zSOFTWARE\Classes\*\shell\LotusTakeOwnership' 'MUIVerb' 'REG_SZ' $takeOwnershipText
 Set-RegistryValue 'HKLM\zSOFTWARE\Classes\*\shell\LotusTakeOwnership' 'HasLUAShield' 'REG_SZ' '1'
