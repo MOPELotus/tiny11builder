@@ -34,10 +34,11 @@ param (
 )
 
 if (-not $SCRATCH) {
-    $ScratchDisk = $PSScriptRoot -replace '[\\]+$', ''
+    $ScratchDisk = Join-Path ($PSScriptRoot -replace '[\\]+$', '') 'build'
 } else {
-    $ScratchDisk = $SCRATCH + ":"
+    $ScratchDisk = Join-Path ($SCRATCH + ":\") 'tiny11builder-work'
 }
+$ScratchDisk = $ScratchDisk -replace '[\\]+$', ''
 
 #---------[ Functions ]---------#
 function Set-RegistryValue {
@@ -81,6 +82,93 @@ function Set-RegistryDefaultValue {
         Write-Output "Set default registry value: $path"
     } catch {
         Write-Output "Error setting default registry value: $_"
+    }
+}
+
+function Assert-LastExitCode {
+    param (
+        [string]$Action,
+        [int[]]$AllowedExitCodes = @(0)
+    )
+
+    if ($AllowedExitCodes -notcontains $LASTEXITCODE) {
+        throw "$Action failed with exit code $LASTEXITCODE"
+    }
+}
+
+function Invoke-DismCritical {
+    param (
+        [string]$Action,
+        [string[]]$Arguments
+    )
+
+    & dism.exe @Arguments
+    Assert-LastExitCode $Action
+}
+
+function Invoke-RegCritical {
+    param (
+        [string]$Action,
+        [string[]]$Arguments
+    )
+
+    & reg.exe @Arguments | Out-Null
+    Assert-LastExitCode $Action
+}
+
+function Invoke-DismCapture {
+    param (
+        [string]$Action,
+        [string[]]$Arguments
+    )
+
+    $output = & dism.exe @Arguments 2>&1
+    $exitCode = $LASTEXITCODE
+    $output | ForEach-Object { Write-Host $_ }
+    if ($exitCode -ne 0) {
+        throw "$Action failed with exit code $exitCode"
+    }
+
+    return $output
+}
+
+function Assert-MountedImage {
+    param ([string]$Path)
+
+    if (-not (Test-Path -Path (Join-Path $Path 'Windows\System32\config\SOFTWARE'))) {
+        throw "Image mount failed or is not usable: $Path"
+    }
+}
+
+function Assert-ImageUnmounted {
+    param ([string]$Path)
+
+    $normalizedPath = [System.IO.Path]::GetFullPath($Path).TrimEnd('\')
+    $mountInfo = Invoke-DismCapture -Action "Verify WIM mount state" -Arguments @('/English', '/Get-MountedWimInfo')
+    foreach ($line in $mountInfo) {
+        if ($line -match '^Mount Dir : (.*)$') {
+            $mountPath = [System.IO.Path]::GetFullPath($matches[1].Trim()).TrimEnd('\')
+            if ($mountPath -ieq $normalizedPath) {
+                throw "Image is still mounted after unmount: $Path"
+            }
+        }
+    }
+}
+
+function Remove-PathIfExists {
+    param (
+        [string]$Path,
+        [switch]$Recurse
+    )
+
+    if (Test-Path -Path $Path) {
+        if ($Recurse) {
+            Remove-Item -Path $Path -Recurse -Force -ErrorAction Stop | Out-Null
+        } else {
+            Remove-Item -Path $Path -Force -ErrorAction Stop | Out-Null
+        }
+    } else {
+        Write-Output "Path already absent: $Path"
     }
 }
 
@@ -318,9 +406,10 @@ try {
 	Write-Error "$wimFilePath not found"
 }
 New-Item -ItemType Directory -Force -Path "$ScratchDisk\scratchdir" > $null
-Mount-WindowsImage -ImagePath $ScratchDisk\tiny11\sources\install.wim -Index $index -Path $ScratchDisk\scratchdir
+Mount-WindowsImage -ImagePath $ScratchDisk\tiny11\sources\install.wim -Index $index -Path $ScratchDisk\scratchdir -ErrorAction Stop
+Assert-MountedImage "$ScratchDisk\scratchdir"
 
-$imageIntl = & dism /English /Get-Intl "/Image:$($ScratchDisk)\scratchdir"
+$imageIntl = Invoke-DismCapture -Action "Get image international settings" -Arguments @('/English', '/Get-Intl', "/Image:$($ScratchDisk)\scratchdir")
 $languageLine = $imageIntl -split '\n' | Where-Object { $_ -match 'Default system UI language : ([a-zA-Z]{2}-[a-zA-Z]{2})' }
 
 if ($languageLine) {
@@ -330,7 +419,7 @@ if ($languageLine) {
     Write-Output "Default system UI language code not found."
 }
 
-$imageInfo = & 'dism' '/English' '/Get-WimInfo' "/wimFile:$($ScratchDisk)\tiny11\sources\install.wim" "/index:$index"
+$imageInfo = Invoke-DismCapture -Action "Get WIM info" -Arguments @('/English', '/Get-WimInfo', "/wimFile:$($ScratchDisk)\tiny11\sources\install.wim", "/index:$index")
 $lines = $imageInfo -split '\r?\n'
 
 foreach ($line in $lines) {
@@ -351,7 +440,7 @@ if (-not $architecture) {
 
 Write-Output "Mounting complete! Performing removal of applications..."
 
-$packages = & 'dism' '/English' "/image:$($ScratchDisk)\scratchdir" '/Get-ProvisionedAppxPackages' |
+$packages = Invoke-DismCapture -Action "Get provisioned UWP packages" -Arguments @('/English', "/image:$($ScratchDisk)\scratchdir", '/Get-ProvisionedAppxPackages') |
     ForEach-Object {
         if ($_ -match 'PackageName : (.*)') {
             $matches[1]
@@ -450,16 +539,16 @@ $packagesToRemove = $packages | Where-Object {
 }
 foreach ($package in $packagesToRemove) {
     Write-Output "Removing provisioned UWP package: $package"
-    & 'dism' '/English' "/image:$($ScratchDisk)\scratchdir" '/Remove-ProvisionedAppxPackage' "/PackageName:$package"
+    Invoke-DismCritical -Action "Remove provisioned UWP package $package" -Arguments @('/English', "/image:$($ScratchDisk)\scratchdir", '/Remove-ProvisionedAppxPackage', "/PackageName:$package")
 }
 
 Write-Output "Enabling .NET Framework 3.5 and classic Win32 media components:"
 if (Test-Path "$DriveLetter\sources\sxs") {
-    & 'dism' '/English' "/Image:$($ScratchDisk)\scratchdir" '/Enable-Feature' '/FeatureName:NetFx3' '/All' "/Source:$DriveLetter\sources\sxs" '/LimitAccess'
+    Invoke-DismCritical -Action "Enable .NET Framework 3.5" -Arguments @('/English', "/Image:$($ScratchDisk)\scratchdir", '/Enable-Feature', '/FeatureName:NetFx3', '/All', "/Source:$DriveLetter\sources\sxs", '/LimitAccess')
 } else {
     Write-Output "SxS source folder not found. Skipping .NET Framework 3.5."
 }
-& 'dism' '/English' "/Image:$($ScratchDisk)\scratchdir" '/Enable-Feature' '/FeatureName:WindowsMediaPlayer' '/All' '/NoRestart'
+Invoke-DismCritical -Action "Enable Windows Media Player" -Arguments @('/English', "/Image:$($ScratchDisk)\scratchdir", '/Enable-Feature', '/FeatureName:WindowsMediaPlayer', '/All', '/NoRestart')
 
 Write-Output "Removing rarely used optional capabilities and packages:"
 $capabilityPatterns = @(
@@ -472,7 +561,7 @@ $capabilityPatterns = @(
 
 $capabilities = @()
 $currentCapability = $null
-foreach ($line in (& 'dism' '/English' "/Image:$($ScratchDisk)\scratchdir" '/Get-Capabilities')) {
+foreach ($line in (Invoke-DismCapture -Action "Get optional capabilities" -Arguments @('/English', "/Image:$($ScratchDisk)\scratchdir", '/Get-Capabilities'))) {
     if ($line -match 'Capability Identity : (.*)') {
         $currentCapability = $matches[1].Trim()
         continue
@@ -488,7 +577,7 @@ foreach ($pattern in $capabilityPatterns) {
         Where-Object { $_ -like $pattern } |
         ForEach-Object {
             Write-Output "Removing capability: $_"
-            & 'dism' '/English' "/Image:$($ScratchDisk)\scratchdir" '/Remove-Capability' "/CapabilityName:$_"
+            Invoke-DismCritical -Action "Remove capability $_" -Arguments @('/English', "/Image:$($ScratchDisk)\scratchdir", '/Remove-Capability', "/CapabilityName:$_")
         }
 }
 
@@ -501,40 +590,58 @@ $packagePatterns = @(
     'Microsoft-Windows-WordPad-FoD-Package~'
 )
 
-$allPackages = & 'dism' '/English' "/Image:$($ScratchDisk)\scratchdir" '/Get-Packages' '/Format:Table'
-$allPackages = $allPackages -split "`r?`n" | Select-Object -Skip 1
+$allPackages = @()
+$currentPackage = $null
+foreach ($line in (Invoke-DismCapture -Action "Get optional packages" -Arguments @('/English', "/Image:$($ScratchDisk)\scratchdir", '/Get-Packages'))) {
+    if ($line -match 'Package Identity : (.*)') {
+        $currentPackage = $matches[1].Trim()
+        continue
+    }
+    if (($line -match 'State : Installed') -and $currentPackage) {
+        $allPackages += $currentPackage
+        $currentPackage = $null
+    }
+}
 foreach ($packagePattern in $packagePatterns) {
     $allPackages |
-        Where-Object { $_ -like "$packagePattern*" } |
+        Where-Object { ($_ -like "$packagePattern*") -and ($_ -like "*~$architecture~~*") } |
         ForEach-Object {
-            $packageIdentity = ($_.Trim() -split '\s+')[0]
+            $packageIdentity = $_.Trim()
             if ($packageIdentity) {
                 Write-Output "Removing optional package: $packageIdentity"
-                & 'dism' '/English' "/Image:$($ScratchDisk)\scratchdir" '/Remove-Package' "/PackageName:$packageIdentity"
+                Invoke-DismCritical -Action "Remove optional package $packageIdentity" -Arguments @('/English', "/Image:$($ScratchDisk)\scratchdir", '/Remove-Package', "/PackageName:$packageIdentity")
             }
         }
 }
 
 Write-Output "Removing Edge:"
-Remove-Item -Path "$ScratchDisk\scratchdir\Program Files (x86)\Microsoft\Edge" -Recurse -Force | Out-Null
-Remove-Item -Path "$ScratchDisk\scratchdir\Program Files (x86)\Microsoft\EdgeUpdate" -Recurse -Force | Out-Null
-Remove-Item -Path "$ScratchDisk\scratchdir\Program Files (x86)\Microsoft\EdgeCore" -Recurse -Force | Out-Null
-& 'takeown' '/f' "$ScratchDisk\scratchdir\Windows\System32\Microsoft-Edge-Webview" '/r' | Out-Null
-& 'icacls' "$ScratchDisk\scratchdir\Windows\System32\Microsoft-Edge-Webview" '/grant' "$($adminGroup.Value):(F)" '/T' '/C' | Out-Null
-Remove-Item -Path "$ScratchDisk\scratchdir\Windows\System32\Microsoft-Edge-Webview" -Recurse -Force | Out-Null
+Remove-PathIfExists -Path "$ScratchDisk\scratchdir\Program Files (x86)\Microsoft\Edge" -Recurse
+Remove-PathIfExists -Path "$ScratchDisk\scratchdir\Program Files (x86)\Microsoft\EdgeUpdate" -Recurse
+Remove-PathIfExists -Path "$ScratchDisk\scratchdir\Program Files (x86)\Microsoft\EdgeCore" -Recurse
+if (Test-Path -Path "$ScratchDisk\scratchdir\Windows\System32\Microsoft-Edge-Webview") {
+    & 'takeown' '/f' "$ScratchDisk\scratchdir\Windows\System32\Microsoft-Edge-Webview" '/r' | Out-Null
+    & 'icacls' "$ScratchDisk\scratchdir\Windows\System32\Microsoft-Edge-Webview" '/grant' "$($adminGroup.Value):(F)" '/T' '/C' | Out-Null
+    Remove-PathIfExists -Path "$ScratchDisk\scratchdir\Windows\System32\Microsoft-Edge-Webview" -Recurse
+} else {
+    Write-Output "Path already absent: $ScratchDisk\scratchdir\Windows\System32\Microsoft-Edge-Webview"
+}
 Write-Output "Removing OneDrive:"
-& 'takeown' '/f' "$ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe" | Out-Null
-& 'icacls' "$ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe" '/grant' "$($adminGroup.Value):(F)" '/T' '/C' | Out-Null
-Remove-Item -Path "$ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe" -Force | Out-Null
+if (Test-Path -Path "$ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe") {
+    & 'takeown' '/f' "$ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe" | Out-Null
+    & 'icacls' "$ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe" '/grant' "$($adminGroup.Value):(F)" '/T' '/C' | Out-Null
+    Remove-PathIfExists -Path "$ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe"
+} else {
+    Write-Output "Path already absent: $ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe"
+}
 Write-Output "Removal complete!"
 Start-Sleep -Seconds 2
 Clear-Host
 Write-Output "Loading registry..."
-reg load HKLM\zCOMPONENTS $ScratchDisk\scratchdir\Windows\System32\config\COMPONENTS | Out-Null
-reg load HKLM\zDEFAULT $ScratchDisk\scratchdir\Windows\System32\config\default | Out-Null
-reg load HKLM\zNTUSER $ScratchDisk\scratchdir\Users\Default\ntuser.dat | Out-Null
-reg load HKLM\zSOFTWARE $ScratchDisk\scratchdir\Windows\System32\config\SOFTWARE | Out-Null
-reg load HKLM\zSYSTEM $ScratchDisk\scratchdir\Windows\System32\config\SYSTEM | Out-Null
+Invoke-RegCritical -Action "Load registry hive HKLM\zCOMPONENTS" -Arguments @('load', 'HKLM\zCOMPONENTS', "$ScratchDisk\scratchdir\Windows\System32\config\COMPONENTS")
+Invoke-RegCritical -Action "Load registry hive HKLM\zDEFAULT" -Arguments @('load', 'HKLM\zDEFAULT', "$ScratchDisk\scratchdir\Windows\System32\config\default")
+Invoke-RegCritical -Action "Load registry hive HKLM\zNTUSER" -Arguments @('load', 'HKLM\zNTUSER', "$ScratchDisk\scratchdir\Users\Default\ntuser.dat")
+Invoke-RegCritical -Action "Load registry hive HKLM\zSOFTWARE" -Arguments @('load', 'HKLM\zSOFTWARE', "$ScratchDisk\scratchdir\Windows\System32\config\SOFTWARE")
+Invoke-RegCritical -Action "Load registry hive HKLM\zSYSTEM" -Arguments @('load', 'HKLM\zSYSTEM', "$ScratchDisk\scratchdir\Windows\System32\config\SYSTEM")
 Write-Output "Bypassing system requirements(on the system image):"
 Set-RegistryValue 'HKLM\zDEFAULT\Control Panel\UnsupportedHardwareNotificationCache' 'SV1' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zDEFAULT\Control Panel\UnsupportedHardwareNotificationCache' 'SV2' 'REG_DWORD' '0'
@@ -572,6 +679,7 @@ Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\CloudContent' 'Disa
 Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\CloudContent' 'DisableCloudOptimizedContent' 'REG_DWORD' '1'
 Write-Output "Enabling Local Accounts on OOBE:"
 Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\OOBE' 'BypassNRO' 'REG_DWORD' '1'
+New-Item -ItemType Directory -Force -Path "$ScratchDisk\scratchdir\Windows\System32\Sysprep" | Out-Null
 Copy-Item -Path "$PSScriptRoot\autounattend.xml" -Destination "$ScratchDisk\scratchdir\Windows\System32\Sysprep\autounattend.xml" -Force | Out-Null
 New-Item -ItemType Directory -Force -Path "$ScratchDisk\scratchdir\Windows\Panther" | Out-Null
 Copy-Item -Path "$PSScriptRoot\autounattend.xml" -Destination "$ScratchDisk\scratchdir\Windows\Panther\Unattend.xml" -Force | Out-Null
@@ -613,7 +721,7 @@ Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Edge' 'HubsSidebarEnabled' 
 Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\Explorer' 'DisableSearchBoxSuggestions' 'REG_DWORD' '1'
 Write-Output "Prevents installation of Teams:"
 Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Teams' 'DisableInstallation' 'REG_DWORD' '1'
-Write-Output "Prevent installation of New Outlook":
+Write-Output "Prevent installation of New Outlook:"
 Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\Windows Mail' 'PreventRun' 'REG_DWORD' '1'
 
 Write-Output "Applying Lotus desktop, privacy, update, and security defaults:"
@@ -772,19 +880,19 @@ Remove-Item -Path "$ScratchDisk\scratchdir\ProgramData\Microsoft\Windows\RetailD
 Remove-Item -Path "$ScratchDisk\scratchdir\Users\Default\AppData\Local\Microsoft\Windows\RetailDemo" -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item -Path "$ScratchDisk\scratchdir\Users\Default\Favorites\Microsoft Websites" -Recurse -Force -ErrorAction SilentlyContinue
 Write-Host "Unmounting Registry..."
-reg unload HKLM\zCOMPONENTS | Out-Null
-reg unload HKLM\zDEFAULT | Out-Null
-reg unload HKLM\zNTUSER | Out-Null
-reg unload HKLM\zSOFTWARE | Out-Null
-reg unload HKLM\zSYSTEM | Out-Null
-Write-Output "Cleaning up image..."
-dism.exe /Image:$ScratchDisk\scratchdir /Cleanup-Image /StartComponentCleanup /ResetBase
-Write-Output "Cleanup complete."
+Invoke-RegCritical -Action "Unload registry hive HKLM\zCOMPONENTS" -Arguments @('unload', 'HKLM\zCOMPONENTS')
+Invoke-RegCritical -Action "Unload registry hive HKLM\zDEFAULT" -Arguments @('unload', 'HKLM\zDEFAULT')
+Invoke-RegCritical -Action "Unload registry hive HKLM\zNTUSER" -Arguments @('unload', 'HKLM\zNTUSER')
+Invoke-RegCritical -Action "Unload registry hive HKLM\zSOFTWARE" -Arguments @('unload', 'HKLM\zSOFTWARE')
+Invoke-RegCritical -Action "Unload registry hive HKLM\zSYSTEM" -Arguments @('unload', 'HKLM\zSYSTEM')
+Write-Output "Skipping component cleanup because this offline image has pending servicing changes after feature/package updates."
+Write-Output "Export-Image with recovery compression will still compact the final install.wim."
 Write-Output ' '
 Write-Output "Unmounting image..."
-Dismount-WindowsImage -Path $ScratchDisk\scratchdir -Save
+Invoke-DismCritical -Action "Commit and unmount install.wim" -Arguments @('/English', '/Unmount-Image', "/MountDir:$ScratchDisk\scratchdir", '/Commit')
+Assert-ImageUnmounted "$ScratchDisk\scratchdir"
 Write-Host "Exporting image..."
-Dism.exe /Export-Image /SourceImageFile:"$ScratchDisk\tiny11\sources\install.wim" /SourceIndex:$index /DestinationImageFile:"$ScratchDisk\tiny11\sources\install2.wim" /Compress:recovery
+Invoke-DismCritical -Action "Export install.wim" -Arguments @('/Export-Image', "/SourceImageFile:$ScratchDisk\tiny11\sources\install.wim", "/SourceIndex:$index", "/DestinationImageFile:$ScratchDisk\tiny11\sources\install2.wim", '/Compress:recovery')
 Remove-Item -Path "$ScratchDisk\tiny11\sources\install.wim" -Force | Out-Null
 Rename-Item -Path "$ScratchDisk\tiny11\sources\install2.wim" -NewName "install.wim" | Out-Null
 Write-Output "Windows image completed. Continuing with boot.wim."
@@ -795,13 +903,14 @@ $wimFilePath = "$ScratchDisk\tiny11\sources\boot.wim"
 & takeown "/F" $wimFilePath | Out-Null
 & icacls $wimFilePath "/grant" "$($adminGroup.Value):(F)"
 Set-ItemProperty -Path $wimFilePath -Name IsReadOnly -Value $false
-Mount-WindowsImage -ImagePath $ScratchDisk\tiny11\sources\boot.wim -Index 2 -Path $ScratchDisk\scratchdir
+Mount-WindowsImage -ImagePath $ScratchDisk\tiny11\sources\boot.wim -Index 2 -Path $ScratchDisk\scratchdir -ErrorAction Stop
+Assert-MountedImage "$ScratchDisk\scratchdir"
 Write-Output "Loading registry..."
-reg load HKLM\zCOMPONENTS $ScratchDisk\scratchdir\Windows\System32\config\COMPONENTS
-reg load HKLM\zDEFAULT $ScratchDisk\scratchdir\Windows\System32\config\default
-reg load HKLM\zNTUSER $ScratchDisk\scratchdir\Users\Default\ntuser.dat
-reg load HKLM\zSOFTWARE $ScratchDisk\scratchdir\Windows\System32\config\SOFTWARE
-reg load HKLM\zSYSTEM $ScratchDisk\scratchdir\Windows\System32\config\SYSTEM
+Invoke-RegCritical -Action "Load registry hive HKLM\zCOMPONENTS" -Arguments @('load', 'HKLM\zCOMPONENTS', "$ScratchDisk\scratchdir\Windows\System32\config\COMPONENTS")
+Invoke-RegCritical -Action "Load registry hive HKLM\zDEFAULT" -Arguments @('load', 'HKLM\zDEFAULT', "$ScratchDisk\scratchdir\Windows\System32\config\default")
+Invoke-RegCritical -Action "Load registry hive HKLM\zNTUSER" -Arguments @('load', 'HKLM\zNTUSER', "$ScratchDisk\scratchdir\Users\Default\ntuser.dat")
+Invoke-RegCritical -Action "Load registry hive HKLM\zSOFTWARE" -Arguments @('load', 'HKLM\zSOFTWARE', "$ScratchDisk\scratchdir\Windows\System32\config\SOFTWARE")
+Invoke-RegCritical -Action "Load registry hive HKLM\zSYSTEM" -Arguments @('load', 'HKLM\zSYSTEM', "$ScratchDisk\scratchdir\Windows\System32\config\SYSTEM")
 
 Write-Output "Bypassing system requirements(on the setup image):"
 Set-RegistryValue 'HKLM\zDEFAULT\Control Panel\UnsupportedHardwareNotificationCache' 'SV1' 'REG_DWORD' '0'
@@ -817,14 +926,15 @@ Set-RegistryValue 'HKLM\zSYSTEM\Setup\MoSetup' 'AllowUpgradesWithUnsupportedTPMO
 Write-Output "Tweaking complete!"
 
 Write-Output "Unmounting Registry..."
-reg unload HKLM\zCOMPONENTS | Out-Null
-reg unload HKLM\zDEFAULT | Out-Null
-reg unload HKLM\zNTUSER | Out-Null
-reg unload HKLM\zSOFTWARE | Out-Null
-reg unload HKLM\zSYSTEM | Out-Null
+Invoke-RegCritical -Action "Unload registry hive HKLM\zCOMPONENTS" -Arguments @('unload', 'HKLM\zCOMPONENTS')
+Invoke-RegCritical -Action "Unload registry hive HKLM\zDEFAULT" -Arguments @('unload', 'HKLM\zDEFAULT')
+Invoke-RegCritical -Action "Unload registry hive HKLM\zNTUSER" -Arguments @('unload', 'HKLM\zNTUSER')
+Invoke-RegCritical -Action "Unload registry hive HKLM\zSOFTWARE" -Arguments @('unload', 'HKLM\zSOFTWARE')
+Invoke-RegCritical -Action "Unload registry hive HKLM\zSYSTEM" -Arguments @('unload', 'HKLM\zSYSTEM')
 
 Write-Output "Unmounting image..."
-Dismount-WindowsImage -Path $ScratchDisk\scratchdir -Save
+Invoke-DismCritical -Action "Commit and unmount boot.wim" -Arguments @('/English', '/Unmount-Image', "/MountDir:$ScratchDisk\scratchdir", '/Commit')
+Assert-ImageUnmounted "$ScratchDisk\scratchdir"
 Clear-Host
 Write-Output "The tiny11 image is now completed. Proceeding with the making of the ISO..."
 Write-Output "Copying unattended file for bypassing MS account on OOBE..."
@@ -858,13 +968,14 @@ if ([System.IO.Directory]::Exists($ADKDepTools)) {
 }
 
 & "$OSCDIMG" '-m' '-o' '-u2' '-udfver102' "-bootdata:2#p0,e,b$ScratchDisk\tiny11\boot\etfsboot.com#pEF,e,b$ScratchDisk\tiny11\efi\microsoft\boot\efisys.bin" "$ScratchDisk\tiny11" "$PSScriptRoot\tiny11.iso"
+Assert-LastExitCode "Create tiny11 ISO"
 
 # Finishing up
 Write-Output "Creation completed! Press any key to exit the script..."
 Read-Host "Press Enter to continue"
 Write-Output "Performing Cleanup..."
-Remove-Item -Path "$ScratchDisk\tiny11" -Recurse -Force | Out-Null
-Remove-Item -Path "$ScratchDisk\scratchdir" -Recurse -Force | Out-Null
+Remove-Item -Path "$ScratchDisk\tiny11" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
+Remove-Item -Path "$ScratchDisk\scratchdir" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
 Write-Output "Ejecting Iso drive"
 Get-Volume -DriveLetter $DriveLetter[0] | Get-DiskImage | Dismount-DiskImage
 Write-Output "Iso drive ejected"
