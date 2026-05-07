@@ -341,6 +341,10 @@ function Set-LotusProfileRoot {
 
 Set-LotusProfileRoot
 
+reg.exe add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v EnableLUA /t REG_DWORD /d 1 /f | Out-Null
+reg.exe add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v ConsentPromptBehaviorAdmin /t REG_DWORD /d 0 /f | Out-Null
+reg.exe add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v PromptOnSecureDesktop /t REG_DWORD /d 0 /f | Out-Null
+
 try {
     if (-not (Get-LocalUser -Name 'Lotus' -ErrorAction SilentlyContinue)) {
         New-LocalUser -Name 'Lotus' -NoPassword -AccountNeverExpires -FullName 'Lotus' | Out-Null
