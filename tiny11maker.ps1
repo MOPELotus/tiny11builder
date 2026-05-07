@@ -870,7 +870,15 @@ Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explor
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'ShowTaskViewButton' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'Start_Layout' 'REG_DWORD' '1'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer' 'link' 'REG_BINARY' '00000000'
-Set-RegistryDefaultValue 'HKLM\zNTUSER\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32' ''
+$classicContextMenuKey = 'Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32'
+foreach ($userHive in @('HKLM\zNTUSER', 'HKLM\zDEFAULT')) {
+    Set-RegistryDefaultValue "$userHive\$classicContextMenuKey" ''
+}
+$classicContextActiveSetup = 'HKLM\zSOFTWARE\Microsoft\Active Setup\Installed Components\LotusClassicContextMenu'
+Set-RegistryDefaultValue $classicContextActiveSetup 'Lotus Classic Context Menu'
+Set-RegistryValue $classicContextActiveSetup 'IsInstalled' 'REG_DWORD' '1'
+Set-RegistryValue $classicContextActiveSetup 'Version' 'REG_SZ' '1,0,0,0'
+Set-RegistryValue $classicContextActiveSetup 'StubPath' 'REG_EXPAND_SZ' 'cmd.exe /d /c reg add "HKCU\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32" /ve /f'
 $lotusDefaultWallpaper = 'C:\Windows\Setup\Lotus\Wallpapers\LotusDefault.jpg'
 foreach ($desktopHive in @('HKLM\zDEFAULT\Control Panel\Desktop', 'HKLM\zNTUSER\Control Panel\Desktop')) {
     Set-RegistryValue $desktopHive 'WallPaper' 'REG_SZ' $lotusDefaultWallpaper
