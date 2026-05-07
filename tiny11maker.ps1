@@ -172,6 +172,82 @@ function Remove-PathIfExists {
     }
 }
 
+function Remove-CleanupPath {
+    param (
+        [string]$Path
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return
+    }
+
+    $previousPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'SilentlyContinue'
+        Remove-Item -LiteralPath $Path -Recurse -Force -ErrorAction SilentlyContinue 2>$null | Out-Null
+    } catch {
+        Write-Output "Cleanup skipped for ${Path}: $($_.Exception.Message)"
+    } finally {
+        $ErrorActionPreference = $previousPreference
+    }
+}
+
+function Set-LotusDefaultWallpaper {
+    param (
+        [string]$MountPath,
+        [string]$PayloadSource
+    )
+
+    $wallpaperSourceRoot = Join-Path $PayloadSource 'Wallpapers'
+    if (-not (Test-Path -LiteralPath $wallpaperSourceRoot)) {
+        Write-Output "No custom wallpaper folder found at $wallpaperSourceRoot."
+        return
+    }
+
+    $wallpaperSource = Get-ChildItem -LiteralPath $wallpaperSourceRoot -File |
+        Where-Object { $_.Extension -in '.jpg', '.jpeg' } |
+        Sort-Object Name |
+        Select-Object -First 1
+
+    if (-not $wallpaperSource) {
+        Write-Output "No JPEG wallpaper found at $wallpaperSourceRoot."
+        return
+    }
+
+    Write-Output "Applying Lotus default wallpaper from $($wallpaperSource.FullName)"
+    $lotusWallpaperRoot = Join-Path $MountPath 'Windows\Setup\Lotus\Wallpapers'
+    New-Item -ItemType Directory -Force -Path $lotusWallpaperRoot | Out-Null
+    Copy-Item -LiteralPath $wallpaperSource.FullName -Destination (Join-Path $lotusWallpaperRoot 'LotusDefault.jpg') -Force -ErrorAction Stop
+
+    $defaultWallpaperRoot = Join-Path $MountPath 'Windows\Web\Wallpaper\Windows'
+    New-Item -ItemType Directory -Force -Path $defaultWallpaperRoot | Out-Null
+
+    $defaultWallpaper = Join-Path $defaultWallpaperRoot 'img0.jpg'
+    try {
+        & takeown.exe '/f' $defaultWallpaper | Out-Null
+        & icacls.exe $defaultWallpaper '/grant' '*S-1-5-32-544:F' '/C' | Out-Null
+        Set-ItemProperty -Path $defaultWallpaper -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue
+        Copy-Item -LiteralPath $wallpaperSource.FullName -Destination $defaultWallpaper -Force -ErrorAction Stop
+    } catch {
+        Write-Output "Optional img0 wallpaper replacement skipped: $($_.Exception.Message)"
+    }
+
+    $fourKWallpaperRoot = Join-Path $MountPath 'Windows\Web\4K\Wallpaper\Windows'
+    if (Test-Path -LiteralPath $fourKWallpaperRoot) {
+        Get-ChildItem -LiteralPath $fourKWallpaperRoot -Filter 'img0*.jpg' -File |
+            ForEach-Object {
+                try {
+                    & takeown.exe '/f' $_.FullName | Out-Null
+                    & icacls.exe $_.FullName '/grant' '*S-1-5-32-544:F' '/C' | Out-Null
+                    Set-ItemProperty -Path $_.FullName -Name IsReadOnly -Value $false -ErrorAction SilentlyContinue
+                    Copy-Item -LiteralPath $wallpaperSource.FullName -Destination $_.FullName -Force -ErrorAction Stop
+                } catch {
+                    Write-Output "Optional 4K wallpaper replacement skipped for $($_.Name): $($_.Exception.Message)"
+                }
+            }
+    }
+}
+
 function Add-LotusSetupPayload {
     param (
         [string]$MountPath,
@@ -684,6 +760,7 @@ Copy-Item -Path "$PSScriptRoot\autounattend.xml" -Destination "$ScratchDisk\scra
 New-Item -ItemType Directory -Force -Path "$ScratchDisk\scratchdir\Windows\Panther" | Out-Null
 Copy-Item -Path "$PSScriptRoot\autounattend.xml" -Destination "$ScratchDisk\scratchdir\Windows\Panther\Unattend.xml" -Force | Out-Null
 Add-LotusSetupPayload -MountPath "$ScratchDisk\scratchdir" -PayloadSource "$PSScriptRoot\payload"
+Set-LotusDefaultWallpaper -MountPath "$ScratchDisk\scratchdir" -PayloadSource "$PSScriptRoot\payload"
 
 Write-Output "Disabling Reserved Storage:"
 Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\ReserveManager' 'ShippedWithReserves' 'REG_DWORD' '0'
@@ -766,6 +843,12 @@ Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explor
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'Start_Layout' 'REG_DWORD' '1'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer' 'link' 'REG_BINARY' '00000000'
 Set-RegistryDefaultValue 'HKLM\zNTUSER\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32' ''
+$lotusDefaultWallpaper = 'C:\Windows\Setup\Lotus\Wallpapers\LotusDefault.jpg'
+foreach ($desktopHive in @('HKLM\zDEFAULT\Control Panel\Desktop', 'HKLM\zNTUSER\Control Panel\Desktop')) {
+    Set-RegistryValue $desktopHive 'WallPaper' 'REG_SZ' $lotusDefaultWallpaper
+    Set-RegistryValue $desktopHive 'WallpaperStyle' 'REG_SZ' '10'
+    Set-RegistryValue $desktopHive 'TileWallpaper' 'REG_SZ' '0'
+}
 
 Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons' '29' 'REG_EXPAND_SZ' '%windir%\System32\imageres.dll,-17'
 Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer' 'NoDriveTypeAutoRun' 'REG_DWORD' '255'
@@ -974,8 +1057,8 @@ Assert-LastExitCode "Create tiny11 ISO"
 Write-Output "Creation completed! Press any key to exit the script..."
 Read-Host "Press Enter to continue"
 Write-Output "Performing Cleanup..."
-Remove-Item -Path "$ScratchDisk\tiny11" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
-Remove-Item -Path "$ScratchDisk\scratchdir" -Recurse -Force -ErrorAction SilentlyContinue | Out-Null
+Remove-CleanupPath -Path "$ScratchDisk\tiny11"
+Remove-CleanupPath -Path "$ScratchDisk\scratchdir"
 Write-Output "Ejecting Iso drive"
 Get-Volume -DriveLetter $DriveLetter[0] | Get-DiskImage | Dismount-DiskImage
 Write-Output "Iso drive ejected"
@@ -991,7 +1074,7 @@ if ($DownloadedAutounattend) {
 Write-Output "Cleanup check :"
 if (Test-Path -Path "$ScratchDisk\tiny11") {
     Write-Output "tiny11 folder still exists. Attempting to remove it again..."
-    Remove-Item -Path "$ScratchDisk\tiny11" -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-CleanupPath -Path "$ScratchDisk\tiny11"
     if (Test-Path -Path "$ScratchDisk\tiny11") {
         Write-Output "Failed to remove tiny11 folder."
     } else {
@@ -1002,7 +1085,7 @@ if (Test-Path -Path "$ScratchDisk\tiny11") {
 }
 if (Test-Path -Path "$ScratchDisk\scratchdir") {
     Write-Output "scratchdir folder still exists. Attempting to remove it again..."
-    Remove-Item -Path "$ScratchDisk\scratchdir" -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-CleanupPath -Path "$ScratchDisk\scratchdir"
     if (Test-Path -Path "$ScratchDisk\scratchdir") {
         Write-Output "Failed to remove scratchdir folder."
     } else {
