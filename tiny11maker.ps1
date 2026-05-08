@@ -483,7 +483,7 @@ function Invoke-LotusLtscStoreScript {
 
     if (-not (Test-LotusLtscStorePayload)) {
         Write-LotusFileLog $storeLog "LTSC Store payload not found or incomplete at $ltscRoot."
-        return $false
+        return
     }
 
     Write-LotusFileLog $storeLog "Running LTSC Store script during $Stage from $addStoreCmd."
@@ -493,29 +493,46 @@ function Invoke-LotusLtscStoreScript {
     $stderr = Join-Path $root "LtscStoreInstall-$Stage.err.log"
     Remove-Item -LiteralPath $stdout, $stderr -Force -ErrorAction SilentlyContinue
 
-    try {
-        $command = "cd /d `"$ltscRoot`" && echo. | `"$addStoreCmd`""
-        $process = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/d', '/c', $command) -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
-        if ($process.WaitForExit(600000)) {
-            Write-LotusFileLog $storeLog "LTSC Store script exit code: $($process.ExitCode) ($Stage)"
-        } else {
-            Write-LotusFileLog $storeLog "LTSC Store script timed out after 10 minutes; stopping process."
-            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+    $command = "cd /d `"$ltscRoot`" && echo. | `"$addStoreCmd`""
+    if ($Stage -match 'FirstLogon') {
+        try {
+            & cmd.exe /d /c $command 2>&1 |
+                ForEach-Object {
+                    $line = $_.ToString()
+                    if ($line.Trim().Length -gt 0) {
+                        Write-LotusFileLog $storeLog $line
+                    } else {
+                        Write-Output ''
+                    }
+                }
+            Write-LotusFileLog $storeLog "LTSC Store script exit code: $LASTEXITCODE ($Stage)"
+        } catch {
+            Write-LotusFileLog $storeLog "LTSC Store script failed to start: $($_.Exception.Message)"
         }
-    } catch {
-        Write-LotusFileLog $storeLog "LTSC Store script failed to start: $($_.Exception.Message)"
-    }
+    } else {
+        try {
+            $process = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/d', '/c', $command) -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+            if ($process.WaitForExit(600000)) {
+                Write-LotusFileLog $storeLog "LTSC Store script exit code: $($process.ExitCode) ($Stage)"
+            } else {
+                Write-LotusFileLog $storeLog "LTSC Store script timed out after 10 minutes; stopping process."
+                Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+            }
+        } catch {
+            Write-LotusFileLog $storeLog "LTSC Store script failed to start: $($_.Exception.Message)"
+        }
 
-    foreach ($logFile in @($stdout, $stderr)) {
-        if (Test-Path $logFile) {
-            Add-Content -Path $storeLog -Value "---- $([System.IO.Path]::GetFileName($logFile)) ----" -Encoding ASCII
-            Get-Content -Path $logFile -ErrorAction SilentlyContinue | Add-Content -Path $storeLog -Encoding ASCII
-            Remove-Item -LiteralPath $logFile -Force -ErrorAction SilentlyContinue
+        foreach ($logFile in @($stdout, $stderr)) {
+            if (Test-Path $logFile) {
+                Add-Content -Path $storeLog -Value "---- $([System.IO.Path]::GetFileName($logFile)) ----" -Encoding ASCII
+                Get-Content -Path $logFile -ErrorAction SilentlyContinue | Add-Content -Path $storeLog -Encoding ASCII
+                Remove-Item -LiteralPath $logFile -Force -ErrorAction SilentlyContinue
+            }
         }
     }
 
     Write-LotusAppxState -LogPath $storeLog -Scope "after LTSC Store script ($Stage)"
-    return $true
+    return
 }
 
 function Install-LotusProvisionedAppxPayload {
@@ -618,6 +635,12 @@ function Install-LotusCurrentUserAppxPayload {
     }
 
     $packages = @(Get-LotusAppxPayloadPackages $storeRoot)
+    if (Test-LotusLtscStorePayload) {
+        $ltscRoot = Join-Path $storeRoot 'LTSC-Add-MicrosoftStore'
+        $packages = @($packages | Where-Object { -not $_.FullName.StartsWith($ltscRoot, [System.StringComparison]::OrdinalIgnoreCase) })
+        Write-LotusFileLog $storeLog "LTSC Store payload detected; current-user Store install will be handled by Add-Store.cmd."
+    }
+
     if ($packages.Count -eq 0) {
         Write-LotusFileLog $storeLog "No Store AppX/MSIX payload packages found at $storeRoot."
         return
@@ -817,16 +840,138 @@ function Set-LotusCurrentUserDefaults {
     }
 }
 
-if ($Stage -eq 'FirstLogon') {
-    Set-LotusCurrentUserDefaults -RestartExplorer
-    Install-LotusCurrentUserAppxPayload
-    if (Test-LotusLtscStorePayload) {
-        Invoke-LotusLtscStoreScript -Stage 'FirstLogon' | Out-Null
-    } else {
-        Start-LotusMicrosoftStoreInstaller
+function Test-LotusAdministrator {
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = New-Object Security.Principal.WindowsPrincipal($identity)
+    return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Start-LotusElevatedStage {
+    param ([string]$StageName)
+
+    $argumentList = "-NoLogo -NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`" -Stage $StageName"
+    Start-Process -FilePath 'powershell.exe' -ArgumentList $argumentList -Verb RunAs -WindowStyle Normal
+}
+
+function Invoke-LotusRestartCountdown {
+    param (
+        [string]$LogPath,
+        [int]$Seconds = 20
+    )
+
+    Write-LotusFileLog $LogPath "Lotus first-logon setup is complete. Windows will restart in $Seconds seconds."
+    Write-LotusFileLog $LogPath 'Press Ctrl+C in this window before the countdown ends if you need to cancel the restart.'
+    for ($remaining = $Seconds; $remaining -gt 0; $remaining--) {
+        Write-Host ("Restarting in {0} second(s)..." -f $remaining)
+        Start-Sleep -Seconds 1
     }
-    Repair-LotusMicrosoftStore
-    Start-LotusXboxInstaller
+
+    & shutdown.exe /r /t 5 /f /c "Lotus setup finished; restarting to apply settings."
+}
+
+function Invoke-LotusFirstLogonSetup {
+    param ([switch]$RestartAfterComplete)
+
+    $logPath = Join-Path $root 'LotusFirstLogon.log'
+    $transcriptPath = Join-Path $root 'LotusFirstLogonTranscript.log'
+    New-Item -ItemType Directory -Force -Path $root | Out-Null
+
+    try {
+        $Host.UI.RawUI.WindowTitle = 'Lotus First-Logon Setup'
+    } catch {
+    }
+
+    Write-Host ''
+    Write-Host '============================================================'
+    Write-Host ' Lotus first-logon setup'
+    Write-Host '============================================================'
+    Write-Host ''
+    Write-LotusFileLog $logPath "Visible first-logon setup started for $env:USERNAME."
+    Write-LotusFileLog $logPath "Main log: $logPath"
+    Write-LotusFileLog $logPath "Transcript: $transcriptPath"
+
+    $transcriptStarted = $false
+    try {
+        Start-Transcript -Path $transcriptPath -Append | Out-Null
+        $transcriptStarted = $true
+    } catch {
+        Write-LotusFileLog $logPath "Transcript start failed: $($_.Exception.Message)"
+    }
+
+    try {
+        Write-LotusFileLog $logPath '[1/6] Applying current-user defaults.'
+        Set-LotusCurrentUserDefaults -RestartExplorer
+
+        Write-LotusFileLog $logPath '[2/6] Restoring Microsoft Store components.'
+        if (Test-LotusLtscStorePayload) {
+            Invoke-LotusLtscStoreScript -Stage 'FirstLogonVisible'
+        } else {
+            Install-LotusCurrentUserAppxPayload
+            Start-LotusMicrosoftStoreInstaller
+        }
+
+        Write-LotusFileLog $logPath '[3/6] Repairing Microsoft Store registration.'
+        Repair-LotusMicrosoftStore
+
+        Write-LotusFileLog $logPath '[4/6] Starting Xbox installer.'
+        Start-LotusXboxInstaller
+
+        Write-LotusFileLog $logPath '[5/6] Reapplying current-user defaults after app registration.'
+        Set-LotusCurrentUserDefaults -RestartExplorer
+
+        Write-LotusFileLog $logPath '[6/6] Capturing final Store/Xbox AppX state.'
+        Write-LotusAppxState -LogPath $logPath -Scope 'after visible first-logon setup'
+
+        New-Item -Path 'HKLM:\SOFTWARE\Lotus\FirstLogon' -Force | Out-Null
+        New-ItemProperty -Path 'HKLM:\SOFTWARE\Lotus\FirstLogon' -Name 'Completed' -PropertyType DWord -Value 1 -Force | Out-Null
+        New-ItemProperty -Path 'HKLM:\SOFTWARE\Lotus\FirstLogon' -Name 'CompletedAt' -PropertyType String -Value (Get-Date -Format s) -Force | Out-Null
+        Write-LotusFileLog $logPath 'Visible first-logon setup finished.'
+    } catch {
+        Write-LotusFileLog $logPath "Visible first-logon setup hit an unhandled error: $($_.Exception.Message)"
+    } finally {
+        if ($transcriptStarted) {
+            try {
+                Stop-Transcript | Out-Null
+            } catch {
+            }
+        }
+    }
+
+    if ($RestartAfterComplete) {
+        Invoke-LotusRestartCountdown -LogPath $logPath -Seconds 20
+    }
+}
+
+function Invoke-LotusUserDefaultsVisible {
+    $logPath = Join-Path $root 'LotusUserDefaults.log'
+    try {
+        $Host.UI.RawUI.WindowTitle = 'Lotus User Defaults'
+    } catch {
+    }
+
+    Write-LotusFileLog $logPath "Applying visible user defaults for $env:USERNAME."
+    Start-Sleep -Seconds 10
+    Set-LotusCurrentUserDefaults -RestartExplorer
+    Write-LotusFileLog $logPath "Visible user defaults finished for $env:USERNAME."
+}
+
+if ($Stage -eq 'FirstLogonVisible') {
+    if (-not (Test-LotusAdministrator)) {
+        Start-LotusElevatedStage -StageName $Stage
+        exit 0
+    }
+
+    Invoke-LotusFirstLogonSetup -RestartAfterComplete
+    exit 0
+}
+
+if ($Stage -eq 'FirstLogon') {
+    Invoke-LotusFirstLogonSetup
+    exit 0
+}
+
+if ($Stage -eq 'UserDefaultsVisible') {
+    Invoke-LotusUserDefaultsVisible
     exit 0
 }
 
@@ -919,25 +1064,26 @@ if (Test-LotusLtscStorePayload) {
     Start-LotusMicrosoftStoreInstaller -AllUsers
 }
 
-$firstLogonCommand = 'wscript.exe "C:\Windows\Setup\Lotus\LotusFirstLogon.vbs"'
-$userDefaultsCommand = 'wscript.exe "C:\Windows\Setup\Lotus\LotusUserDefaults.vbs"'
-& reg.exe add 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' /v '000LotusUserDefaults' /t REG_SZ /d $userDefaultsCommand /f | Out-Null
+$firstLogonCommand = 'cmd.exe /d /c ""C:\Windows\Setup\Lotus\LotusFirstLogon.cmd""'
 & reg.exe add 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' /v 'LotusFirstLogonStoreXbox' /t REG_SZ /d $firstLogonCommand /f | Out-Null
-Write-Output "First-logon Store/Xbox RunOnce creation exit code: $LASTEXITCODE"
+Write-Output "Visible first-logon Store/Xbox RunOnce creation exit code: $LASTEXITCODE"
 '@
 
-    $firstLogonVbs = @'
-Set shell = CreateObject("WScript.Shell")
-shell.Environment("PROCESS")("SEE_MASK_NOZONECHECKS") = "1"
-cmd = "cmd.exe /d /c powershell.exe -NoProfile -ExecutionPolicy Bypass -File ""%WINDIR%\Setup\Lotus\LotusPostInstall.ps1"" -Stage FirstLogon >> ""%WINDIR%\Setup\Lotus\LotusFirstLogon.log"" 2>&1"
-shell.Run shell.ExpandEnvironmentStrings(cmd), 0, False
+    $firstLogonCmd = @'
+@echo off
+set SEE_MASK_NOZONECHECKS=1
+title Lotus First-Logon Setup
+cd /d "%WINDIR%\Setup\Lotus"
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%WINDIR%\Setup\Lotus\LotusPostInstall.ps1" -Stage FirstLogonVisible
+exit /b %ERRORLEVEL%
 '@
 
-    $userDefaultsVbs = @'
-Set shell = CreateObject("WScript.Shell")
-shell.Environment("PROCESS")("SEE_MASK_NOZONECHECKS") = "1"
-cmd = "cmd.exe /d /c powershell.exe -NoProfile -ExecutionPolicy Bypass -File ""%WINDIR%\Setup\Lotus\LotusPostInstall.ps1"" -Stage UserDefaultsDelayed >> ""%WINDIR%\Setup\Lotus\LotusUserDefaults.log"" 2>&1"
-shell.Run shell.ExpandEnvironmentStrings(cmd), 0, False
+    $userDefaultsCmd = @'
+@echo off
+set SEE_MASK_NOZONECHECKS=1
+title Lotus User Defaults
+powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%WINDIR%\Setup\Lotus\LotusPostInstall.ps1" -Stage UserDefaultsVisible
+exit /b %ERRORLEVEL%
 '@
 
     $setupComplete = @'
@@ -949,8 +1095,8 @@ exit /b 0
 '@
 
     Set-Content -Path (Join-Path $lotusRoot 'LotusPostInstall.ps1') -Value $postInstallScript -Encoding ASCII
-    Set-Content -Path (Join-Path $lotusRoot 'LotusFirstLogon.vbs') -Value $firstLogonVbs -Encoding ASCII
-    Set-Content -Path (Join-Path $lotusRoot 'LotusUserDefaults.vbs') -Value $userDefaultsVbs -Encoding ASCII
+    Set-Content -Path (Join-Path $lotusRoot 'LotusFirstLogon.cmd') -Value $firstLogonCmd -Encoding ASCII
+    Set-Content -Path (Join-Path $lotusRoot 'LotusUserDefaults.cmd') -Value $userDefaultsCmd -Encoding ASCII
     Set-Content -Path (Join-Path $scriptsRoot 'SetupComplete.cmd') -Value $setupComplete -Encoding ASCII
 }
 
@@ -1440,8 +1586,8 @@ $lotusUserDefaultsActiveSetup = 'HKLM\zSOFTWARE\Microsoft\Active Setup\Installed
 Set-RegistryDefaultValue $lotusUserDefaultsActiveSetup 'Lotus User Defaults'
 Set-RegistryValue $lotusUserDefaultsActiveSetup 'IsInstalled' 'REG_DWORD' '1'
 Set-RegistryValue $lotusUserDefaultsActiveSetup 'Version' 'REG_SZ' '1,0,0,0'
-Set-RegistryValue $lotusUserDefaultsActiveSetup 'StubPath' 'REG_SZ' 'wscript.exe "C:\Windows\Setup\Lotus\LotusUserDefaults.vbs"'
-Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' '000LotusUserDefaults' 'REG_SZ' 'wscript.exe "C:\Windows\Setup\Lotus\LotusUserDefaults.vbs"'
+Set-RegistryValue $lotusUserDefaultsActiveSetup 'StubPath' 'REG_SZ' 'cmd.exe /d /c ""C:\Windows\Setup\Lotus\LotusUserDefaults.cmd""'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' 'LotusFirstLogonStoreXbox' 'REG_SZ' 'cmd.exe /d /c ""C:\Windows\Setup\Lotus\LotusFirstLogon.cmd""'
 $lotusDefaultWallpaper = 'C:\Windows\Web\Wallpaper\Lotus\LotusDefault.jpg'
 foreach ($desktopHive in @('HKLM\zDEFAULT\Control Panel\Desktop', 'HKLM\zNTUSER\Control Panel\Desktop')) {
     Set-RegistryValue $desktopHive 'WallPaper' 'REG_SZ' $lotusDefaultWallpaper
