@@ -49,7 +49,7 @@ C:/path/to/your/tiny11/script.ps1 -ISO <letter> -SCRATCH <letter>
 - Removes explicit promotional, cloud, duplicate, and low-value UWP packages. Store, App Installer, Xbox/game components, Store dependencies, Calculator, Snipping Tool, Photos, Paint, Camera, and Sound Recorder are kept.
 - Removes Edge and OneDrive, enables .NET Framework 3.5 when the ISO SxS source is available, and keeps classic Win32 media support enabled.
 - Applies privacy, notification, taskbar, Explorer, old context menu, storage sense, update notification, Delivery Optimization, Defender, SmartScreen, autoplay, hibernation, and startup/shutdown defaults.
-- Copies optional files from `payload/` into the image and runs them once via `SetupComplete.cmd` for MiSans, DirectX 9.0c, VC++ redistributables, .NET Desktop Runtime 8/9, and PowerShell MSI. Office 2016 Mondo is scheduled as an online first-logon install.
+- Copies optional files from `payload/` into the image and runs them once via `SetupComplete.cmd` for MiSans, DirectX 9.0c, VC++ redistributables, .NET Desktop Runtime 8/9, PowerShell MSI, and Store/Xbox restoration payloads. Office is intentionally left to post-install tools such as Office Tool Plus.
 
 ---
 

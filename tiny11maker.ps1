@@ -284,7 +284,7 @@ function Add-LotusSetupPayload {
                 Remove-Item -LiteralPath $_.FullName -Stream Zone.Identifier -ErrorAction SilentlyContinue
             }
     } else {
-        Write-Output "No payload folder found at $PayloadSource. Runtime, font, Office and PowerShell installers will be skipped unless added later."
+        Write-Output "No payload folder found at $PayloadSource. Runtime, font, Store/Xbox, and PowerShell installers will be skipped unless added later."
     }
 
     $postInstallScript = @'
@@ -448,6 +448,57 @@ function Write-LotusAppxState {
     }
 }
 
+function Test-LotusLtscStorePayload {
+    $ltscRoot = Join-Path $root 'Store\LTSC-Add-MicrosoftStore'
+    return (Test-Path (Join-Path $ltscRoot 'Add-Store.cmd')) -and
+        (Test-Path (Join-Path $ltscRoot '*WindowsStore*.appxbundle')) -and
+        (Test-Path (Join-Path $ltscRoot '*WindowsStore*.xml'))
+}
+
+function Invoke-LotusLtscStoreScript {
+    param ([string]$Stage)
+
+    $storeLog = Join-Path $root 'LtscStoreInstall.log'
+    $ltscRoot = Join-Path $root 'Store\LTSC-Add-MicrosoftStore'
+    $addStoreCmd = Join-Path $ltscRoot 'Add-Store.cmd'
+
+    if (-not (Test-LotusLtscStorePayload)) {
+        Write-LotusFileLog $storeLog "LTSC Store payload not found or incomplete at $ltscRoot."
+        return $false
+    }
+
+    Write-LotusFileLog $storeLog "Running LTSC Store script during $Stage from $addStoreCmd."
+    Write-LotusAppxState -LogPath $storeLog -Scope "before LTSC Store script ($Stage)"
+
+    $stdout = Join-Path $root "LtscStoreInstall-$Stage.out.log"
+    $stderr = Join-Path $root "LtscStoreInstall-$Stage.err.log"
+    Remove-Item -LiteralPath $stdout, $stderr -Force -ErrorAction SilentlyContinue
+
+    try {
+        $command = "cd /d `"$ltscRoot`" && echo. | `"$addStoreCmd`""
+        $process = Start-Process -FilePath 'cmd.exe' -ArgumentList @('/d', '/c', $command) -WindowStyle Hidden -PassThru -RedirectStandardOutput $stdout -RedirectStandardError $stderr
+        if ($process.WaitForExit(600000)) {
+            Write-LotusFileLog $storeLog "LTSC Store script exit code: $($process.ExitCode) ($Stage)"
+        } else {
+            Write-LotusFileLog $storeLog "LTSC Store script timed out after 10 minutes; stopping process."
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        }
+    } catch {
+        Write-LotusFileLog $storeLog "LTSC Store script failed to start: $($_.Exception.Message)"
+    }
+
+    foreach ($logFile in @($stdout, $stderr)) {
+        if (Test-Path $logFile) {
+            Add-Content -Path $storeLog -Value "---- $([System.IO.Path]::GetFileName($logFile)) ----" -Encoding ASCII
+            Get-Content -Path $logFile -ErrorAction SilentlyContinue | Add-Content -Path $storeLog -Encoding ASCII
+            Remove-Item -LiteralPath $logFile -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    Write-LotusAppxState -LogPath $storeLog -Scope "after LTSC Store script ($Stage)"
+    return $true
+}
+
 function Install-LotusProvisionedAppxPayload {
     $storeRoot = Join-Path $root 'Store'
     $storeLog = Join-Path $root 'StorePayloadInstall.log'
@@ -458,6 +509,12 @@ function Install-LotusProvisionedAppxPayload {
     }
 
     $packages = @(Get-LotusAppxPayloadPackages $storeRoot)
+    if (Test-LotusLtscStorePayload) {
+        $ltscRoot = Join-Path $storeRoot 'LTSC-Add-MicrosoftStore'
+        $packages = @($packages | Where-Object { -not $_.FullName.StartsWith($ltscRoot, [System.StringComparison]::OrdinalIgnoreCase) })
+        Write-LotusFileLog $storeLog "LTSC Store payload detected; provisioning it through Add-Store.cmd instead of the generic AppX loop."
+    }
+
     if ($packages.Count -eq 0) {
         Write-LotusFileLog $storeLog "No Store AppX/MSIX payload packages found at $storeRoot."
         return
@@ -737,41 +794,14 @@ function Set-LotusCurrentUserDefaults {
     }
 }
 
-function Start-LotusOfficeInstaller {
-    $officeRoot = Join-Path $root 'Office2016Mondo'
-    $officeInstallScript = Join-Path $officeRoot 'InstallOfficeAfterLogon.cmd'
-    $officeLog = Join-Path $root 'Office2016MondoInstall.log'
-    $officeTask = 'Lotus Office 2016 Mondo Online Install'
-
-    if (-not (Test-Path $officeInstallScript)) {
-        Write-LotusFileLog $officeLog "Office install script not found: $officeInstallScript"
-        return
-    }
-
-    Write-LotusFileLog $officeLog 'First-logon Office trigger reached.'
-    try {
-        & schtasks.exe /Run /TN $officeTask 2>&1 |
-            ForEach-Object { Write-LotusFileLog $officeLog "schtasks /Run: $_" }
-        Write-LotusFileLog $officeLog "Office scheduled task run exit code: $LASTEXITCODE"
-    } catch {
-        Write-LotusFileLog $officeLog "Office scheduled task run failed: $($_.Exception.Message)"
-    }
-
-    if ($LASTEXITCODE -ne 0) {
-        try {
-            $process = Start-Process -FilePath 'cmd.exe' -ArgumentList "/d /c `"$officeInstallScript`"" -WindowStyle Hidden -PassThru
-            Write-LotusFileLog $officeLog "Started direct Office install fallback with PID $($process.Id)."
-        } catch {
-            Write-LotusFileLog $officeLog "Direct Office install fallback failed: $($_.Exception.Message)"
-        }
-    }
-}
-
 if ($Stage -eq 'FirstLogon') {
     Set-LotusCurrentUserDefaults -RestartExplorer
-    Start-LotusOfficeInstaller
     Install-LotusCurrentUserAppxPayload
-    Start-LotusMicrosoftStoreInstaller
+    if (Test-LotusLtscStorePayload) {
+        Invoke-LotusLtscStoreScript -Stage 'FirstLogon' | Out-Null
+    } else {
+        Start-LotusMicrosoftStoreInstaller
+    }
     Repair-LotusMicrosoftStore
     Start-LotusXboxInstaller
     exit 0
@@ -860,63 +890,10 @@ if ($pwshMsi) {
 }
 
 Install-LotusProvisionedAppxPayload
-Start-LotusMicrosoftStoreInstaller -AllUsers
-
-$officeRoot = Join-Path $root 'Office2016Mondo'
-$officeConfig = Join-Path $officeRoot 'configuration.xml'
-if (Test-Path $officeConfig) {
-    $officeInstallScript = Join-Path $officeRoot 'InstallOfficeAfterLogon.cmd'
-    Write-Output "Office payload detected: $officeRoot"
-    $officeInstallContent = @"
-@echo off
-setlocal EnableExtensions EnableDelayedExpansion
-set OFFICE_ROOT=%WINDIR%\Setup\Lotus\Office2016Mondo
-set OFFICE_LOG=%WINDIR%\Setup\Lotus\Office2016MondoInstall.log
-set OFFICE_TASK=Lotus Office 2016 Mondo Online Install
->>"%OFFICE_LOG%" echo.
->>"%OFFICE_LOG%" echo ==== Office install attempt %DATE% %TIME% ====
->>"%OFFICE_LOG%" echo OFFICE_ROOT=%OFFICE_ROOT%
->>"%OFFICE_LOG%" echo USER=%USERNAME%
-if not exist "%OFFICE_ROOT%\configuration.xml" (
-    >>"%OFFICE_LOG%" echo Missing configuration.xml
-    exit /b 2
-)
-if not exist "%OFFICE_ROOT%\setup.exe" (
-    if exist "%OFFICE_ROOT%\officedeploymenttool.exe" (
-        >>"%OFFICE_LOG%" echo Extracting Office Deployment Tool...
-        "%OFFICE_ROOT%\officedeploymenttool.exe" /quiet /extract:"%OFFICE_ROOT%" >> "%OFFICE_LOG%" 2>&1
-        set EXTRACT_EXIT=!ERRORLEVEL!
-        >>"%OFFICE_LOG%" echo ODT extract exit code: !EXTRACT_EXIT!
-    ) else (
-        >>"%OFFICE_LOG%" echo Missing officedeploymenttool.exe
-        exit /b 3
-    )
-)
-if not exist "%OFFICE_ROOT%\setup.exe" (
-    >>"%OFFICE_LOG%" echo setup.exe was not extracted.
-    exit /b 4
-)
->>"%OFFICE_LOG%" echo Running Office setup.exe /configure...
-"%OFFICE_ROOT%\setup.exe" /configure "%OFFICE_ROOT%\configuration.xml" >> "%OFFICE_LOG%" 2>&1
-set INSTALL_EXIT=!ERRORLEVEL!
->>"%OFFICE_LOG%" echo Office setup exit code: !INSTALL_EXIT!
-if "!INSTALL_EXIT!"=="0" (
-    >>"%OFFICE_LOG%" echo Office setup command completed successfully. Removing retry task.
-    schtasks.exe /Delete /TN "%OFFICE_TASK%" /F >> "%OFFICE_LOG%" 2>&1
-    exit /b 0
-)
->>"%OFFICE_LOG%" echo Office setup did not report success. Keeping scheduled task for retry on next logon.
-exit /b !INSTALL_EXIT!
-"@
-    Set-Content -Path $officeInstallScript -Value $officeInstallContent -Encoding ASCII
-    $officeTaskCommand = 'cmd.exe /d /c "%WINDIR%\Setup\Lotus\Office2016Mondo\InstallOfficeAfterLogon.cmd"'
-    & schtasks.exe /Create /TN 'Lotus Office 2016 Mondo Online Install' /SC ONLOGON /DELAY 0001:00 /RL HIGHEST /RU SYSTEM /TR $officeTaskCommand /F |
-        ForEach-Object { Write-Output "Office task: $_" }
-    Write-Output "Office task creation exit code: $LASTEXITCODE"
-    & reg.exe add 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' /v 'LotusOffice2016Mondo' /t REG_SZ /d $officeTaskCommand /f | Out-Null
-    Write-Output "Office RunOnce creation exit code: $LASTEXITCODE"
+if (Test-LotusLtscStorePayload) {
+    Invoke-LotusLtscStoreScript -Stage 'SetupComplete' | Out-Null
 } else {
-    Write-Output "Office payload config not found: $officeConfig"
+    Start-LotusMicrosoftStoreInstaller -AllUsers
 }
 
 $firstLogonCommand = 'wscript.exe "%WINDIR%\Setup\Lotus\LotusFirstLogon.vbs"'

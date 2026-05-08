@@ -11,14 +11,14 @@ payload/
   VCRedist/              VC++ 2008-2026 redistributable .exe/.msi installers
   DotNet/                .NET 8/9 Desktop Runtime .exe installers
   PowerShell/            Latest PowerShell-*-win-*.msi
-  Office2016Mondo/       ODT officedeploymenttool.exe plus configuration.xml
-  Store/                 MicrosoftStoreInstaller.exe, or Store/App Installer AppX/MSIX packages plus dependencies
+  Store/                 Store/App Installer AppX/MSIX packages plus dependencies
+  Store/LTSC-Add-MicrosoftStore/
+                         kkkgo/LTSC-Add-MicrosoftStore package for Store, Purchase App, App Installer, and Xbox Identity
   XboxInstaller/         XboxInstaller.exe, launched at first logon to restore Xbox/Gaming components
 ```
 
-Office is installed by a first-logon scheduled task so the desktop appears before the online Office 2016 Mondo install starts.
-If `Office2016Mondo` also contains a pre-downloaded Office source cache referenced by `configuration.xml`, the same task installs from the local cache instead of downloading at first logon.
+Office is intentionally not bundled. Install it later with Office Tool Plus or another preferred Office installer after Windows reaches the desktop.
 
 VC++ 2005 redistributables are intentionally skipped because their legacy installers can break unattended setup on current Windows builds.
 
-`MicrosoftStoreInstaller.exe` is launched silently during `SetupComplete` with all-users mode, then retried once in the first user session. Store AppX/MSIX packages are also provisioned during `SetupComplete` when present under `Store`, then rechecked in the first user session. Put current Microsoft Store, StorePurchaseApp, DesktopAppInstaller, VCLibs, UI.Xaml, WindowsAppRuntime, and related dependency packages there when the source image does not already include them.
+When `Store/LTSC-Add-MicrosoftStore/Add-Store.cmd` and its AppX/XML files are present, that package is used first to restore Microsoft Store, StorePurchaseApp, DesktopAppInstaller, and XboxIdentityProvider. `MicrosoftStoreInstaller.exe` is only used as a fallback when the LTSC package is missing. Store AppX/MSIX packages are also rechecked in the first user session before XboxInstaller is launched.

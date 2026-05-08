@@ -11,4 +11,3 @@ payload/**/*.otf
 payload/DirectX/*.cab
 payload/DirectX/*.dll
 !payload/**/.gitkeep
-!payload/Office2016Mondo/configuration.xml
