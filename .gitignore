@@ -1,5 +1,10 @@
 payload/**/*.exe
 payload/**/*.msi
+payload/**/*.appx
+payload/**/*.appxbundle
+payload/**/*.msix
+payload/**/*.msixbundle
+payload/**/*.BlockMap
 payload/**/*.ttf
 payload/**/*.ttc
 payload/**/*.otf

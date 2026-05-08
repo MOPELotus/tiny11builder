@@ -267,6 +267,10 @@ function Add-LotusSetupPayload {
     }
 
     $postInstallScript = @'
+param (
+    [string]$Stage = 'SetupComplete'
+)
+
 $ErrorActionPreference = 'SilentlyContinue'
 $root = Join-Path $env:WINDIR 'Setup\Lotus'
 
@@ -311,6 +315,291 @@ function Get-VCRedistArguments {
     return '/quiet /norestart'
 }
 
+function Write-LotusFileLog {
+    param (
+        [string]$Path,
+        [string]$Message
+    )
+
+    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    $line = "[$timestamp] $Message"
+    Add-Content -Path $Path -Value $line -Encoding ASCII
+    Write-Output $line
+}
+
+function Get-LotusAppxPackagePriority {
+    param ([string]$Name)
+
+    switch -Regex ($Name) {
+        'Microsoft\.NET\.Native\.Framework' { return 10 }
+        'Microsoft\.NET\.Native\.Runtime' { return 11 }
+        'Microsoft\.VCLibs' { return 12 }
+        'Microsoft\.UI\.Xaml' { return 13 }
+        'Microsoft\.WindowsAppRuntime' { return 14 }
+        'Microsoft\.Services\.Store\.Engagement' { return 15 }
+        'Microsoft\.WindowsStore' { return 30 }
+        'Microsoft\.StorePurchaseApp' { return 31 }
+        'Microsoft\.DesktopAppInstaller' { return 32 }
+        'Microsoft\.XboxIdentityProvider' { return 40 }
+        'Microsoft\.GamingServices' { return 41 }
+        'Microsoft\.XboxGamingOverlay' { return 42 }
+        'Microsoft\.GamingApp' { return 43 }
+        default { return 90 }
+    }
+}
+
+function Get-LotusAppxPayloadPackages {
+    param ([string]$StoreRoot)
+
+    if (-not (Test-Path $StoreRoot)) {
+        return @()
+    }
+
+    return @(
+        Get-ChildItem -Path $StoreRoot -Recurse -File |
+            Where-Object { $_.Extension.ToLowerInvariant() -in @('.appx', '.appxbundle', '.msix', '.msixbundle') } |
+            Sort-Object @{ Expression = { Get-LotusAppxPackagePriority $_.Name } }, Name
+    )
+}
+
+function Get-LotusAppxDependencyPaths {
+    param (
+        [object[]]$Packages,
+        [System.IO.FileInfo]$Package
+    )
+
+    $dependencyPattern = 'Microsoft\.(NET\.Native|VCLibs|UI\.Xaml|WindowsAppRuntime|Services\.Store\.Engagement)'
+    if ($Package.Name -match $dependencyPattern) {
+        return @()
+    }
+
+    return @(
+        $Packages |
+            Where-Object { $_.Name -match $dependencyPattern } |
+            Select-Object -ExpandProperty FullName
+    )
+}
+
+function Get-LotusAppxLicensePath {
+    param (
+        [string]$StoreRoot,
+        [System.IO.FileInfo]$Package
+    )
+
+    $baseName = $Package.Name -replace '\.(appx|appxbundle|msix|msixbundle)$', ''
+    $packageFamily = $null
+    if ($baseName -match '^(Microsoft\.[^_]+)_.*_([A-Za-z0-9]+)$') {
+        $packageFamily = "$($matches[1])_$($matches[2])"
+    }
+
+    if ($packageFamily) {
+        $license = Get-ChildItem -Path $StoreRoot -Recurse -File -Filter "$packageFamily.xml" |
+            Select-Object -First 1
+        if ($license) {
+            return $license.FullName
+        }
+    }
+
+    return $null
+}
+
+function Write-LotusAppxState {
+    param (
+        [string]$LogPath,
+        [string]$Scope
+    )
+
+    Write-LotusFileLog $LogPath "Current AppX state: $Scope"
+    try {
+        Get-AppxPackage -AllUsers |
+            Where-Object { $_.Name -match 'Microsoft.WindowsStore|Microsoft.StorePurchaseApp|Microsoft.DesktopAppInstaller|Microsoft.GamingApp|Microsoft.GamingServices|Microsoft.XboxIdentityProvider|Microsoft.XboxGamingOverlay' } |
+            Format-List Name,PackageFullName,Status |
+            Out-String |
+            Add-Content -Path $LogPath -Encoding ASCII
+    } catch {
+        Write-LotusFileLog $LogPath "AppX state query failed: $($_.Exception.Message)"
+    }
+}
+
+function Install-LotusProvisionedAppxPayload {
+    $storeRoot = Join-Path $root 'Store'
+    $storeLog = Join-Path $root 'StorePayloadInstall.log'
+
+    if (-not (Test-Path $storeRoot)) {
+        Write-LotusFileLog $storeLog "No Store payload folder found at $storeRoot."
+        return
+    }
+
+    $packages = @(Get-LotusAppxPayloadPackages $storeRoot)
+    if ($packages.Count -eq 0) {
+        Write-LotusFileLog $storeLog "No Store AppX/MSIX payload packages found at $storeRoot."
+        return
+    }
+
+    Write-LotusFileLog $storeLog "Provisioning $($packages.Count) Store AppX/MSIX payload package(s)."
+    foreach ($package in $packages) {
+        $dependencyPaths = @(Get-LotusAppxDependencyPaths -Packages $packages -Package $package)
+        $licensePath = Get-LotusAppxLicensePath -StoreRoot $storeRoot -Package $package
+        $params = @{
+            Online = $true
+            PackagePath = $package.FullName
+            ErrorAction = 'Stop'
+        }
+
+        if ($dependencyPaths.Count -gt 0) {
+            $params['DependencyPackagePath'] = $dependencyPaths
+        }
+
+        if ($licensePath) {
+            $params['LicensePath'] = $licensePath
+            Write-LotusFileLog $storeLog "Provisioning $($package.Name) with license $([System.IO.Path]::GetFileName($licensePath))."
+        } else {
+            $params['SkipLicense'] = $true
+            Write-LotusFileLog $storeLog "Provisioning $($package.Name) with SkipLicense."
+        }
+
+        try {
+            Add-AppxProvisionedPackage @params 2>&1 |
+                Out-String |
+                Add-Content -Path $storeLog -Encoding ASCII
+            Write-LotusFileLog $storeLog "Provisioned $($package.Name)."
+        } catch {
+            Write-LotusFileLog $storeLog "Provisioning failed for $($package.Name): $($_.Exception.Message)"
+        }
+    }
+
+    Write-LotusAppxState -LogPath $storeLog -Scope 'after provisioned Store payload install'
+}
+
+function Start-LotusMicrosoftStoreInstaller {
+    param ([switch]$AllUsers)
+
+    $storeLog = Join-Path $root 'MicrosoftStoreInstaller.log'
+    $storeInstaller = Join-Path $root 'Store\MicrosoftStoreInstaller.exe'
+
+    if (-not (Test-Path $storeInstaller)) {
+        Write-LotusFileLog $storeLog "No Microsoft Store installer found at $storeInstaller."
+        return
+    }
+
+    Write-LotusFileLog $storeLog "Starting Microsoft Store installer from $storeInstaller."
+    try {
+        $signature = Get-AuthenticodeSignature -FilePath $storeInstaller
+        Write-LotusFileLog $storeLog "Microsoft Store installer signature: $($signature.Status), signer: $($signature.SignerCertificate.Subject)"
+    } catch {
+        Write-LotusFileLog $storeLog "Microsoft Store installer signature check failed: $($_.Exception.Message)"
+    }
+
+    $arguments = '--silent'
+    if ($AllUsers) {
+        $arguments = '--silent --allusers'
+    }
+
+    try {
+        $process = Start-Process -FilePath $storeInstaller -ArgumentList $arguments -Wait -PassThru -WindowStyle Hidden
+        Write-LotusFileLog $storeLog "Microsoft Store installer exit code: $($process.ExitCode) ($arguments)"
+    } catch {
+        Write-LotusFileLog $storeLog "Microsoft Store installer failed: $($_.Exception.Message)"
+    }
+
+    Write-LotusAppxState -LogPath $storeLog -Scope 'after Microsoft Store installer'
+}
+
+function Install-LotusCurrentUserAppxPayload {
+    $storeRoot = Join-Path $root 'Store'
+    $storeLog = Join-Path $root 'StorePayloadUserInstall.log'
+
+    if (-not (Test-Path $storeRoot)) {
+        Write-LotusFileLog $storeLog "No Store payload folder found at $storeRoot."
+        return
+    }
+
+    $packages = @(Get-LotusAppxPayloadPackages $storeRoot)
+    if ($packages.Count -eq 0) {
+        Write-LotusFileLog $storeLog "No Store AppX/MSIX payload packages found at $storeRoot."
+        return
+    }
+
+    Write-LotusFileLog $storeLog "Installing $($packages.Count) Store AppX/MSIX payload package(s) for $env:USERNAME."
+    foreach ($package in $packages) {
+        try {
+            Write-LotusFileLog $storeLog "Installing $($package.Name) for current user."
+            Add-AppxPackage -Path $package.FullName -ErrorAction Stop 2>&1 |
+                Out-String |
+                Add-Content -Path $storeLog -Encoding ASCII
+            Write-LotusFileLog $storeLog "Installed $($package.Name) for current user."
+        } catch {
+            Write-LotusFileLog $storeLog "Current-user install failed for $($package.Name): $($_.Exception.Message)"
+        }
+    }
+
+    Write-LotusAppxState -LogPath $storeLog -Scope 'after current-user Store payload install'
+}
+
+function Repair-LotusMicrosoftStore {
+    $storeLog = Join-Path $root 'MicrosoftStoreRepair.log'
+
+    Write-LotusFileLog $storeLog 'Starting Microsoft Store repair.'
+    Write-LotusAppxState -LogPath $storeLog -Scope 'before Store repair'
+
+    try {
+        $process = Start-Process -FilePath 'wsreset.exe' -ArgumentList '-i' -Wait -PassThru -WindowStyle Hidden
+        Write-LotusFileLog $storeLog "wsreset -i exit code: $($process.ExitCode)"
+    } catch {
+        Write-LotusFileLog $storeLog "wsreset -i failed: $($_.Exception.Message)"
+    }
+
+    try {
+        $storePackage = Get-AppxPackage -Name 'Microsoft.WindowsStore' -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($storePackage) {
+            $manifest = Join-Path $storePackage.InstallLocation 'AppxManifest.xml'
+            if (Test-Path $manifest) {
+                Add-AppxPackage -DisableDevelopmentMode -Register $manifest -ErrorAction Stop
+                Write-LotusFileLog $storeLog 'Re-registered Microsoft Store manifest.'
+            }
+        }
+    } catch {
+        Write-LotusFileLog $storeLog "Microsoft Store manifest registration failed: $($_.Exception.Message)"
+    }
+
+    Write-LotusAppxState -LogPath $storeLog -Scope 'after Store repair'
+}
+
+function Start-LotusXboxInstaller {
+    $xboxLog = Join-Path $root 'XboxInstaller.log'
+    $xboxInstaller = Join-Path $root 'XboxInstaller\XboxInstaller.exe'
+
+    if (-not (Test-Path $xboxInstaller)) {
+        Write-LotusFileLog $xboxLog "No Xbox installer found at $xboxInstaller."
+        return
+    }
+
+    Write-LotusFileLog $xboxLog "Starting Xbox installer from $xboxInstaller."
+    try {
+        $signature = Get-AuthenticodeSignature -FilePath $xboxInstaller
+        Write-LotusFileLog $xboxLog "Xbox installer signature: $($signature.Status), signer: $($signature.SignerCertificate.Subject)"
+    } catch {
+        Write-LotusFileLog $xboxLog "Xbox installer signature check failed: $($_.Exception.Message)"
+    }
+
+    Write-LotusAppxState -LogPath $xboxLog -Scope 'before Xbox installer'
+
+    try {
+        $process = Start-Process -FilePath $xboxInstaller -ArgumentList '-startpage AppInstall' -PassThru
+        Write-LotusFileLog $xboxLog "Xbox installer started with PID $($process.Id)."
+        if ($process.WaitForExit(600000)) {
+            Write-LotusFileLog $xboxLog "Xbox installer exit code: $($process.ExitCode)"
+        } else {
+            Write-LotusFileLog $xboxLog 'Xbox installer is still running after 10 minutes; leaving it open for user-context install.'
+        }
+    } catch {
+        Write-LotusFileLog $xboxLog "Xbox installer failed to start: $($_.Exception.Message)"
+    }
+
+    Write-LotusAppxState -LogPath $xboxLog -Scope 'after Xbox installer'
+}
+
 function Set-LotusProfileRoot {
     $profilesRoot = 'D:\Users'
     if (-not (Test-Path 'D:\')) {
@@ -337,6 +626,14 @@ function Set-LotusProfileRoot {
     }
 
     attrib.exe +h (Join-Path $profilesRoot 'Default') 2>$null
+}
+
+if ($Stage -eq 'FirstLogon') {
+    Install-LotusCurrentUserAppxPayload
+    Start-LotusMicrosoftStoreInstaller
+    Repair-LotusMicrosoftStore
+    Start-LotusXboxInstaller
+    exit 0
 }
 
 Set-LotusProfileRoot
@@ -408,6 +705,9 @@ if ($pwshMsi) {
     Start-LotusProcess 'msiexec.exe' "/i `"$($pwshMsi.FullName)`" /qn /norestart ADD_EXPLORER_CONTEXT_MENU_OPENPOWERSHELL=1 ADD_FILE_CONTEXT_MENU_RUNPOWERSHELL=1 ENABLE_PSREMOTING=0 REGISTER_MANIFEST=1 USE_MU=0 ENABLE_MU=0 ADD_PATH=1"
 }
 
+Install-LotusProvisionedAppxPayload
+Start-LotusMicrosoftStoreInstaller -AllUsers
+
 $officeRoot = Join-Path $root 'Office2016Mondo'
 $officeConfig = Join-Path $officeRoot 'configuration.xml'
 if (Test-Path $officeConfig) {
@@ -462,26 +762,9 @@ exit /b !INSTALL_EXIT!
     Write-Output "Office RunOnce creation exit code: $LASTEXITCODE"
 }
 
-$storeRepairScript = Join-Path $root 'RepairMicrosoftStore.cmd'
-$storeRepairContent = @"
-@echo off
-setlocal EnableExtensions EnableDelayedExpansion
-set STORE_LOG=%WINDIR%\Setup\Lotus\MicrosoftStoreRepair.log
->>"%STORE_LOG%" echo.
->>"%STORE_LOG%" echo ==== Microsoft Store repair %DATE% %TIME% ====
->>"%STORE_LOG%" echo Checking current Store packages...
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Get-AppxPackage -AllUsers | Where-Object Name -match 'Microsoft.WindowsStore|Microsoft.StorePurchaseApp|Microsoft.DesktopAppInstaller' | Format-List Name,PackageFullName,Status" >> "%STORE_LOG%" 2>&1
->>"%STORE_LOG%" echo Running wsreset -i...
-wsreset.exe -i >> "%STORE_LOG%" 2>&1
-set STORE_EXIT=!ERRORLEVEL!
->>"%STORE_LOG%" echo wsreset -i exit code: !STORE_EXIT!
-powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Get-AppxPackage -AllUsers | Where-Object Name -match 'Microsoft.WindowsStore|Microsoft.StorePurchaseApp|Microsoft.DesktopAppInstaller' | Format-List Name,PackageFullName,Status" >> "%STORE_LOG%" 2>&1
-exit /b 0
-"@
-Set-Content -Path $storeRepairScript -Value $storeRepairContent -Encoding ASCII
-$storeRepairCommand = 'cmd.exe /d /c "%WINDIR%\Setup\Lotus\RepairMicrosoftStore.cmd"'
-& reg.exe add 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' /v 'LotusMicrosoftStoreRepair' /t REG_SZ /d $storeRepairCommand /f | Out-Null
-Write-Output "Microsoft Store repair RunOnce creation exit code: $LASTEXITCODE"
+$firstLogonCommand = 'cmd.exe /d /c powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%WINDIR%\Setup\Lotus\LotusPostInstall.ps1" -Stage FirstLogon >> "%WINDIR%\Setup\Lotus\LotusFirstLogon.log" 2>&1'
+& reg.exe add 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' /v 'LotusFirstLogonStoreXbox' /t REG_SZ /d $firstLogonCommand /f | Out-Null
+Write-Output "First-logon Store/Xbox RunOnce creation exit code: $LASTEXITCODE"
 '@
 
     $setupComplete = @'
