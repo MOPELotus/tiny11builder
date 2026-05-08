@@ -191,7 +191,7 @@ try {
     $oscdimg = Join-Path $RepoRoot 'oscdimg.exe'
     Copy-Item -LiteralPath $cdimage -Destination $oscdimg -Force
 
-    $inputFile = Join-Path $buildRoot 'tiny11-input.txt'
+    $inputFile = Join-Path $buildRoot ("tiny11-input-{0}.txt" -f ([guid]::NewGuid().ToString('N')))
     Set-Content -LiteralPath $inputFile -Value "1`r`n`r`n" -Encoding ASCII
 
     $repoIso = Join-Path $RepoRoot 'tiny11.iso'
