@@ -65,6 +65,47 @@ function Invoke-Logged {
     }
 }
 
+function Invoke-CleanupCommand {
+    param(
+        [string]$FilePath,
+        [string[]]$ArgumentList,
+        [string]$WorkingDirectory = $RepoRoot
+    )
+
+    Write-Log ("CLEANUP {0} {1}" -f $FilePath, ($ArgumentList -join ' '))
+    Push-Location $WorkingDirectory
+    try {
+        & $FilePath @ArgumentList 2>&1 |
+            ForEach-Object { Write-Log ($_ | Out-String).TrimEnd() }
+        $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+        Write-Log "CLEANUP EXIT $exitCode"
+        return $exitCode
+    } finally {
+        Pop-Location
+    }
+}
+
+function Unload-StaleLotusRegistryHives {
+    foreach ($hive in @('zCOMPONENTS', 'zNTUSER', 'zSOFTWARE', 'zSYSTEM', 'zDEFAULT')) {
+        & reg.exe query "HKLM\$hive" 1>$null 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Log "Unloading stale registry hive: HKLM\$hive"
+            & reg.exe unload "HKLM\$hive" 2>&1 |
+                ForEach-Object { Write-Log ($_ | Out-String).TrimEnd() }
+            Write-Log "Hive unload exit code for ${hive}: $LASTEXITCODE"
+        }
+    }
+}
+
+function Clear-StaleScratchMount {
+    $scratchDir = Join-Path (Join-Path $RepoRoot 'build') 'scratchdir'
+    if (Test-Path -LiteralPath $scratchDir) {
+        Invoke-CleanupCommand -FilePath dism.exe -ArgumentList @('/English', '/Unmount-Image', "/MountDir:$scratchDir", '/Discard') | Out-Null
+    }
+    Unload-StaleLotusRegistryHives
+    Invoke-CleanupCommand -FilePath dism.exe -ArgumentList @('/English', '/Cleanup-Mountpoints') | Out-Null
+}
+
 function Set-IniValue {
     param(
         [string]$Path,
@@ -140,6 +181,7 @@ try {
     Write-Status -Status 'running' -Step 'cleanup stale mounts'
     Invoke-Logged -FilePath dism.exe -ArgumentList @('/English', '/Cleanup-Mountpoints') -WorkingDirectory $RepoRoot -AllowNonZero
     Invoke-Logged -FilePath dism.exe -ArgumentList @('/English', '/Cleanup-Wim') -WorkingDirectory $RepoRoot -AllowNonZero
+    Clear-StaleScratchMount
 
     $scratchRoot = Join-Path $RepoRoot 'build'
     foreach ($scratchPath in @((Join-Path $scratchRoot 'scratchdir'), (Join-Path $scratchRoot 'tiny11'))) {
@@ -253,6 +295,11 @@ try {
         $message = ($_ | Out-String).Trim()
     }
     Write-Log "FAILED: $message"
+    try {
+        Clear-StaleScratchMount
+    } catch {
+        Write-Log "Post-failure scratch cleanup skipped: $($_.Exception.Message)"
+    }
     Write-Status -Status 'failed' -Step 'failed' -ErrorMessage $message
     exit 1
 } finally {
