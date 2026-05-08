@@ -149,7 +149,13 @@ function Load-Hive {
     )
 
     $hivePath = "HKLM\$Name"
-    & reg.exe unload $hivePath *> $null
+    if (Test-Path -LiteralPath "Registry::HKEY_LOCAL_MACHINE\$Name") {
+        Write-Log "Unloading stale hive before reload: $hivePath"
+        Invoke-Logged -FilePath reg.exe -ArgumentList @('unload', $hivePath)
+    } else {
+        Write-Log "No stale hive loaded for $hivePath."
+    }
+
     Invoke-Logged -FilePath reg.exe -ArgumentList @('load', $hivePath, $Path)
     $loadedHives.Add($hivePath)
     return $hivePath
@@ -259,6 +265,7 @@ try {
     $mountedWim = $true
 
     Write-Status -Status 'running' -Step 'patch scripts'
+    Write-Log 'Patching Lotus first-logon scripts.'
     $makerText = Get-Content -LiteralPath (Join-Path $RepoRoot 'tiny11maker.ps1') -Raw
     $lotusRoot = Join-Path $mountDir 'Windows\Setup\Lotus'
     $scriptsRoot = Join-Path $mountDir 'Windows\Setup\Scripts'
@@ -270,6 +277,7 @@ try {
     Remove-Item -LiteralPath (Join-Path $lotusRoot 'LotusFirstLogon.vbs'), (Join-Path $lotusRoot 'LotusUserDefaults.vbs') -Force -ErrorAction SilentlyContinue
 
     Write-Status -Status 'running' -Step 'patch registry'
+    Write-Log 'Patching offline Default User registry.'
     $ntUser = Load-Hive -Name 'LotusQuick_NTUSER' -Path (Join-Path $mountDir 'Users\Default\ntuser.dat')
     $defaultHive = Load-Hive -Name 'LotusQuick_DEFAULT' -Path (Join-Path $mountDir 'Windows\System32\config\default')
     $softwareHive = Load-Hive -Name 'LotusQuick_SOFTWARE' -Path (Join-Path $mountDir 'Windows\System32\config\SOFTWARE')

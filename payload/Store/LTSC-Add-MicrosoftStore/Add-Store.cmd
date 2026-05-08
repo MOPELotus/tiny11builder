@@ -5,10 +5,10 @@ setlocal enableextensions
 if /i "%PROCESSOR_ARCHITECTURE%" equ "AMD64" (set "arch=x64") else (set "arch=x86")
 cd /d "%~dp0"
 
-if not exist "*WindowsStore*.appxbundle" goto :nofiles
+if not exist "*WindowsStore*.appxbundle" if not exist "*WindowsStore*.msixbundle" goto :nofiles
 if not exist "*WindowsStore*.xml" goto :nofiles
 
-for /f %%i in ('dir /b *WindowsStore*.appxbundle 2^>nul') do set "Store=%%i"
+for /f %%i in ('dir /b /o:n *WindowsStore*.appxbundle *WindowsStore*.msixbundle 2^>nul') do set "Store=%%i"
 for /f %%i in ('dir /b *NET.Native.Framework*1.6*.appx 2^>nul ^| find /i "x64"') do set "Framework6X64=%%i"
 for /f %%i in ('dir /b *NET.Native.Framework*1.6*.appx 2^>nul ^| find /i "x86"') do set "Framework6X86=%%i"
 for /f %%i in ('dir /b *NET.Native.Runtime*1.6*.appx 2^>nul ^| find /i "x64"') do set "Runtime6X64=%%i"
@@ -17,13 +17,22 @@ for /f %%i in ('dir /b *VCLibs*140*.appx 2^>nul ^| find /i "x64"') do set "VCLib
 for /f %%i in ('dir /b *VCLibs*140*.appx 2^>nul ^| find /i "x86"') do set "VCLibsX86=%%i"
 
 if exist "*StorePurchaseApp*.appxbundle" if exist "*StorePurchaseApp*.xml" (
-for /f %%i in ('dir /b *StorePurchaseApp*.appxbundle 2^>nul') do set "PurchaseApp=%%i"
+for /f %%i in ('dir /b /o:n *StorePurchaseApp*.appxbundle *StorePurchaseApp*.msixbundle 2^>nul') do set "PurchaseApp=%%i"
+)
+if exist "*StorePurchaseApp*.msixbundle" if exist "*StorePurchaseApp*.xml" (
+for /f %%i in ('dir /b /o:n *StorePurchaseApp*.appxbundle *StorePurchaseApp*.msixbundle 2^>nul') do set "PurchaseApp=%%i"
 )
 if exist "*DesktopAppInstaller*.appxbundle" if exist "*DesktopAppInstaller*.xml" (
-for /f %%i in ('dir /b *DesktopAppInstaller*.appxbundle 2^>nul') do set "AppInstaller=%%i"
+for /f %%i in ('dir /b /o:n *DesktopAppInstaller*.appxbundle *DesktopAppInstaller*.msixbundle 2^>nul') do set "AppInstaller=%%i"
+)
+if exist "*DesktopAppInstaller*.msixbundle" if exist "*DesktopAppInstaller*.xml" (
+for /f %%i in ('dir /b /o:n *DesktopAppInstaller*.appxbundle *DesktopAppInstaller*.msixbundle 2^>nul') do set "AppInstaller=%%i"
 )
 if exist "*XboxIdentityProvider*.appxbundle" if exist "*XboxIdentityProvider*.xml" (
-for /f %%i in ('dir /b *XboxIdentityProvider*.appxbundle 2^>nul') do set "XboxIdentity=%%i"
+for /f %%i in ('dir /b /o:n *XboxIdentityProvider*.appxbundle *XboxIdentityProvider*.msixbundle 2^>nul') do set "XboxIdentity=%%i"
+)
+if exist "*XboxIdentityProvider*.msixbundle" if exist "*XboxIdentityProvider*.xml" (
+for /f %%i in ('dir /b /o:n *XboxIdentityProvider*.appxbundle *XboxIdentityProvider*.msixbundle 2^>nul') do set "XboxIdentity=%%i"
 )
 
 if /i %arch%==x64 (
