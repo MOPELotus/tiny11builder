@@ -250,6 +250,10 @@ function Set-LotusDefaultWallpaper {
     New-Item -ItemType Directory -Force -Path $lotusWallpaperRoot | Out-Null
     Copy-Item -LiteralPath $wallpaperSource.FullName -Destination (Join-Path $lotusWallpaperRoot 'LotusDefault.jpg') -Force -ErrorAction Stop
 
+    $safeWallpaperRoot = Join-Path $MountPath 'Windows\Web\Wallpaper\Lotus'
+    New-Item -ItemType Directory -Force -Path $safeWallpaperRoot | Out-Null
+    Copy-Item -LiteralPath $wallpaperSource.FullName -Destination (Join-Path $safeWallpaperRoot 'LotusDefault.jpg') -Force -ErrorAction Stop
+
     $defaultWallpaperRoot = Join-Path $MountPath 'Windows\Web\Wallpaper\Windows'
     New-Item -ItemType Directory -Force -Path $defaultWallpaperRoot | Out-Null
 
@@ -795,7 +799,10 @@ function Set-LotusCurrentUserDefaults {
     Remove-Item -Path 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager\SuggestedApps' -Recurse -Force -ErrorAction SilentlyContinue
     Remove-Item -Path 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\CloudStore\Store\Cache\DefaultAccount' -Recurse -Force -ErrorAction SilentlyContinue
 
-    $lotusDefaultWallpaper = Join-Path $root 'Wallpapers\LotusDefault.jpg'
+    $lotusDefaultWallpaper = 'C:\Windows\Web\Wallpaper\Lotus\LotusDefault.jpg'
+    if (-not (Test-Path $lotusDefaultWallpaper)) {
+        $lotusDefaultWallpaper = Join-Path $root 'Wallpapers\LotusDefault.jpg'
+    }
     if (Test-Path $lotusDefaultWallpaper) {
         Set-LotusCurrentUserRegValue 'HKCU:\Control Panel\Desktop' 'WallPaper' 'String' $lotusDefaultWallpaper
         Set-LotusCurrentUserRegValue 'HKCU:\Control Panel\Desktop' 'WallpaperStyle' 'String' '10'
@@ -911,8 +918,8 @@ if (Test-LotusLtscStorePayload) {
     Start-LotusMicrosoftStoreInstaller -AllUsers
 }
 
-$firstLogonCommand = 'wscript.exe "%WINDIR%\Setup\Lotus\LotusFirstLogon.vbs"'
-$userDefaultsCommand = 'wscript.exe "%WINDIR%\Setup\Lotus\LotusUserDefaults.vbs"'
+$firstLogonCommand = 'wscript.exe "C:\Windows\Setup\Lotus\LotusFirstLogon.vbs"'
+$userDefaultsCommand = 'wscript.exe "C:\Windows\Setup\Lotus\LotusUserDefaults.vbs"'
 & reg.exe add 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' /v '000LotusUserDefaults' /t REG_SZ /d $userDefaultsCommand /f | Out-Null
 & reg.exe add 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' /v 'LotusFirstLogonStoreXbox' /t REG_SZ /d $firstLogonCommand /f | Out-Null
 Write-Output "First-logon Store/Xbox RunOnce creation exit code: $LASTEXITCODE"
@@ -1431,9 +1438,9 @@ $lotusUserDefaultsActiveSetup = 'HKLM\zSOFTWARE\Microsoft\Active Setup\Installed
 Set-RegistryDefaultValue $lotusUserDefaultsActiveSetup 'Lotus User Defaults'
 Set-RegistryValue $lotusUserDefaultsActiveSetup 'IsInstalled' 'REG_DWORD' '1'
 Set-RegistryValue $lotusUserDefaultsActiveSetup 'Version' 'REG_SZ' '1,0,0,0'
-Set-RegistryValue $lotusUserDefaultsActiveSetup 'StubPath' 'REG_EXPAND_SZ' 'wscript.exe "%WINDIR%\Setup\Lotus\LotusUserDefaults.vbs"'
-Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' '000LotusUserDefaults' 'REG_SZ' 'wscript.exe "%WINDIR%\Setup\Lotus\LotusUserDefaults.vbs"'
-$lotusDefaultWallpaper = 'C:\Windows\Setup\Lotus\Wallpapers\LotusDefault.jpg'
+Set-RegistryValue $lotusUserDefaultsActiveSetup 'StubPath' 'REG_SZ' 'wscript.exe "C:\Windows\Setup\Lotus\LotusUserDefaults.vbs"'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' '000LotusUserDefaults' 'REG_SZ' 'wscript.exe "C:\Windows\Setup\Lotus\LotusUserDefaults.vbs"'
+$lotusDefaultWallpaper = 'C:\Windows\Web\Wallpaper\Lotus\LotusDefault.jpg'
 foreach ($desktopHive in @('HKLM\zDEFAULT\Control Panel\Desktop', 'HKLM\zNTUSER\Control Panel\Desktop')) {
     Set-RegistryValue $desktopHive 'WallPaper' 'REG_SZ' $lotusDefaultWallpaper
     Set-RegistryValue $desktopHive 'WallpaperStyle' 'REG_SZ' '10'
