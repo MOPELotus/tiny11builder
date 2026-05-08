@@ -295,6 +295,7 @@ param (
 $ErrorActionPreference = 'SilentlyContinue'
 $env:SEE_MASK_NOZONECHECKS = '1'
 $root = Join-Path $env:WINDIR 'Setup\Lotus'
+$lotusLowRiskFileTypes = '.exe;.msi;.msp;.msu;.cmd;.bat;.ps1;.psm1;.vbs;.js;.jse;.wsf;.reg;.scr;.com;.cpl;.dll;.hta;.chm;.jar;.zip;.7z;.rar;.iso;'
 
 if (Test-Path $root) {
     Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue |
@@ -678,7 +679,12 @@ function Set-LotusCurrentUserDefaults {
     Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Personalization\Settings' 'AcceptedPrivacyPolicy' 'DWord' 0
     Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\CloudExperienceHost\Intent\PersonalDataExport' 'PDEShown' 'DWord' 2
     Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Attachments' 'SaveZoneInformation' 'DWord' 1
-    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Associations' 'LowRiskFileTypes' 'String' '.exe;.msi;.cmd;.bat;.ps1;.vbs;'
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Associations' 'LowRiskFileTypes' 'String' $lotusLowRiskFileTypes
+    Set-LotusCurrentUserRegValue 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\Zones\0' '1806' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\Zones\1' '1806' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\Zones\2' '1806' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\Zones\3' '1806' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Internet Settings\Zones\4' '1806' 'DWord' 0
 
     Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers' 'DisableAutoplay' 'DWord' 1
     Set-LotusCurrentUserRegValue 'HKCU:\Control Panel\Desktop' 'AutoEndTasks' 'String' '1'
@@ -1442,11 +1448,18 @@ foreach ($desktopHive in @('HKLM\zDEFAULT\Control Panel\Desktop', 'HKLM\zNTUSER\
 
 Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons' '29' 'REG_EXPAND_SZ' '%windir%\System32\imageres.dll,-17'
 Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer' 'NoDriveTypeAutoRun' 'REG_DWORD' '255'
+$lotusLowRiskFileTypes = '.exe;.msi;.msp;.msu;.cmd;.bat;.ps1;.psm1;.vbs;.js;.jse;.wsf;.reg;.scr;.com;.cpl;.dll;.hta;.chm;.jar;.zip;.7z;.rar;.iso;'
 Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Attachments' 'SaveZoneInformation' 'REG_DWORD' '1'
-Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Associations' 'LowRiskFileTypes' 'REG_SZ' '.exe;.msi;.cmd;.bat;.ps1;.vbs;'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Associations' 'LowRiskFileTypes' 'REG_SZ' $lotusLowRiskFileTypes
 foreach ($attachmentHive in @('HKLM\zNTUSER', 'HKLM\zDEFAULT')) {
     Set-RegistryValue "$attachmentHive\Software\Microsoft\Windows\CurrentVersion\Policies\Attachments" 'SaveZoneInformation' 'REG_DWORD' '1'
-    Set-RegistryValue "$attachmentHive\Software\Microsoft\Windows\CurrentVersion\Policies\Associations" 'LowRiskFileTypes' 'REG_SZ' '.exe;.msi;.cmd;.bat;.ps1;.vbs;'
+    Set-RegistryValue "$attachmentHive\Software\Microsoft\Windows\CurrentVersion\Policies\Associations" 'LowRiskFileTypes' 'REG_SZ' $lotusLowRiskFileTypes
+    foreach ($zone in 0..4) {
+        Set-RegistryValue "$attachmentHive\Software\Microsoft\Windows\CurrentVersion\Internet Settings\Zones\$zone" '1806' 'REG_DWORD' '0'
+    }
+}
+foreach ($zone in 0..4) {
+    Set-RegistryValue "HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Internet Settings\Zones\$zone" '1806' 'REG_DWORD' '0'
 }
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers' 'DisableAutoplay' 'REG_DWORD' '1'
 Set-RegistryValue 'HKLM\zNTUSER\Control Panel\Desktop' 'AutoEndTasks' 'REG_SZ' '1'
