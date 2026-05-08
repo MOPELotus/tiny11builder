@@ -87,8 +87,7 @@ function Invoke-CleanupCommand {
 
 function Unload-StaleLotusRegistryHives {
     foreach ($hive in @('zCOMPONENTS', 'zNTUSER', 'zSOFTWARE', 'zSYSTEM', 'zDEFAULT')) {
-        & reg.exe query "HKLM\$hive" 1>$null 2>$null
-        if ($LASTEXITCODE -eq 0) {
+        if (Test-Path -LiteralPath "Registry::HKEY_LOCAL_MACHINE\$hive") {
             Write-Log "Unloading stale registry hive: HKLM\$hive"
             & reg.exe unload "HKLM\$hive" 2>&1 |
                 ForEach-Object { Write-Log ($_ | Out-String).TrimEnd() }
