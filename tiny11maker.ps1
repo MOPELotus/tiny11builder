@@ -728,9 +728,10 @@ function Set-LotusCurrentUserDefaults {
     Set-LotusCurrentUserRegValue 'HKCU:\Control Panel\International\Geo' 'Name' 'String' 'US'
     Set-LotusCurrentUserRegValue 'HKCU:\Control Panel\International\Geo' 'Nation' 'String' '244'
 
-    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize' 'AppsUseLightTheme' 'DWord' 0
-    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize' 'SystemUsesLightTheme' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize' 'AppsUseLightTheme' 'DWord' 1
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize' 'SystemUsesLightTheme' 'DWord' 1
     Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize' 'EnableTransparency' 'DWord' 1
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes' 'CurrentTheme' 'String' 'C:\Windows\Resources\Themes\aero.theme'
 
     Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'LaunchTo' 'DWord' 1
     Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'HideFileExt' 'DWord' 0
@@ -1421,9 +1422,10 @@ Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explor
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'TaskbarMn' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer' 'link' 'REG_BINARY' '00000000'
 foreach ($themeHive in @('HKLM\zNTUSER', 'HKLM\zDEFAULT')) {
-    Set-RegistryValue "$themeHive\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" 'AppsUseLightTheme' 'REG_DWORD' '0'
-    Set-RegistryValue "$themeHive\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" 'SystemUsesLightTheme' 'REG_DWORD' '0'
+    Set-RegistryValue "$themeHive\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" 'AppsUseLightTheme' 'REG_DWORD' '1'
+    Set-RegistryValue "$themeHive\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" 'SystemUsesLightTheme' 'REG_DWORD' '1'
     Set-RegistryValue "$themeHive\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" 'EnableTransparency' 'REG_DWORD' '1'
+    Set-RegistryValue "$themeHive\Software\Microsoft\Windows\CurrentVersion\Themes" 'CurrentTheme' 'REG_SZ' 'C:\Windows\Resources\Themes\aero.theme'
 }
 $classicContextMenuKey = 'Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32'
 foreach ($userHive in @('HKLM\zNTUSER', 'HKLM\zDEFAULT')) {
