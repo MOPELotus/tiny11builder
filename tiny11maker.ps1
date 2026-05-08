@@ -596,35 +596,142 @@ function Start-LotusXboxInstaller {
     Write-LotusAppxState -LogPath $xboxLog -Scope 'after Xbox installer'
 }
 
-function Set-LotusProfileRoot {
-    $profilesRoot = 'D:\Users'
-    if (-not (Test-Path 'D:\')) {
-        Write-Output 'D: drive not found. Keeping the default profile root.'
+function Set-LotusCurrentUserRegValue {
+    param (
+        [string]$Path,
+        [string]$Name,
+        [string]$PropertyType,
+        $Value
+    )
+
+    New-Item -Path $Path -Force | Out-Null
+    New-ItemProperty -Path $Path -Name $Name -PropertyType $PropertyType -Value $Value -Force | Out-Null
+}
+
+function Set-LotusCurrentUserDefaults {
+    param ([switch]$RestartExplorer)
+
+    Write-Output "Applying Lotus current-user defaults for $env:USERNAME"
+
+    try {
+        Set-WinHomeLocation -GeoId 244
+    } catch {
+        Write-Output "Set-WinHomeLocation failed: $_"
+    }
+    Set-LotusCurrentUserRegValue 'HKCU:\Control Panel\International\Geo' 'Name' 'String' 'US'
+    Set-LotusCurrentUserRegValue 'HKCU:\Control Panel\International\Geo' 'Nation' 'String' '244'
+
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize' 'AppsUseLightTheme' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize' 'SystemUsesLightTheme' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Themes\Personalize' 'EnableTransparency' 'DWord' 1
+
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'LaunchTo' 'DWord' 1
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'HideFileExt' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'ShowSecondsInSystemClock' 'DWord' 1
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'TaskbarAl' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'TaskbarDa' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'TaskbarGlomLevel' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'MMTaskbarGlomLevel' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'SearchboxTaskbarMode' 'DWord' 1
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'ShowTaskViewButton' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'Start_Layout' 'DWord' 1
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'TaskbarMn' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer' 'link' 'Binary' ([byte[]](0, 0, 0, 0))
+
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\AdvertisingInfo' 'Enabled' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Privacy' 'TailoredExperiencesWithDiagnosticDataEnabled' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Speech_OneCore\Settings\OnlineSpeechPrivacy' 'HasAccepted' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Input\TIPC' 'Enabled' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\InputPersonalization' 'RestrictImplicitInkCollection' 'DWord' 1
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\InputPersonalization' 'RestrictImplicitTextCollection' 'DWord' 1
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\InputPersonalization\TrainedDataStore' 'HarvestContacts' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Personalization\Settings' 'AcceptedPrivacyPolicy' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\CloudExperienceHost\Intent\PersonalDataExport' 'PDEShown' 'DWord' 2
+
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers' 'DisableAutoplay' 'DWord' 1
+    Set-LotusCurrentUserRegValue 'HKCU:\Control Panel\Desktop' 'AutoEndTasks' 'String' '1'
+    Set-LotusCurrentUserRegValue 'HKCU:\Control Panel\Desktop' 'HungAppTimeout' 'String' '2000'
+    Set-LotusCurrentUserRegValue 'HKCU:\Control Panel\Desktop' 'WaitToKillAppTimeout' 'String' '2000'
+    Set-LotusCurrentUserRegValue 'HKCU:\Control Panel\Desktop' 'MenuShowDelay' 'String' '0'
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\PushNotifications' 'ToastEnabled' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Notifications\Settings' 'NOC_GLOBAL_SETTING_ALLOW_TOASTS_ABOVE_LOCK' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Notifications\Settings' 'NOC_GLOBAL_SETTING_ALLOW_CRITICAL_TOASTS_ABOVE_LOCK' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy' '01' 'DWord' 1
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy' '04' 'DWord' 1
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\StorageSense\Parameters\StoragePolicy' '08' 'DWord' 1
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\InputMethod\Settings\CHS' 'Default Mode' 'DWord' 1
+    Set-LotusCurrentUserRegValue 'HKCU:\Keyboard Layout\Preload' '1' 'String' '00000804'
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'DontUsePowerShellOnWinX' 'DWord' 0
+
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'RotatingLockScreenEnabled' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'RotatingLockScreenOverlayEnabled' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'OemPreInstalledAppsEnabled' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'PreInstalledAppsEnabled' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'SilentInstalledAppsEnabled' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'ContentDeliveryAllowed' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'FeatureManagementEnabled' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'PreInstalledAppsEverEnabled' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'SoftLandingEnabled' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'SubscribedContentEnabled' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'SubscribedContent-310093Enabled' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'SubscribedContent-338387Enabled' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'SubscribedContent-338388Enabled' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'SubscribedContent-338389Enabled' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'SubscribedContent-338393Enabled' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'SubscribedContent-353694Enabled' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'SubscribedContent-353696Enabled' 'DWord' 0
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager' 'SystemPaneSuggestionsEnabled' 'DWord' 0
+    Remove-Item -Path 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager\Subscriptions' -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\ContentDeliveryManager\SuggestedApps' -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\CloudStore\Store\Cache\DefaultAccount' -Recurse -Force -ErrorAction SilentlyContinue
+
+    $lotusDefaultWallpaper = Join-Path $root 'Wallpapers\LotusDefault.jpg'
+    if (Test-Path $lotusDefaultWallpaper) {
+        Set-LotusCurrentUserRegValue 'HKCU:\Control Panel\Desktop' 'WallPaper' 'String' $lotusDefaultWallpaper
+        Set-LotusCurrentUserRegValue 'HKCU:\Control Panel\Desktop' 'WallpaperStyle' 'String' '10'
+        Set-LotusCurrentUserRegValue 'HKCU:\Control Panel\Desktop' 'TileWallpaper' 'String' '0'
+    }
+
+    & reg.exe add 'HKCU\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32' '/ve' '/f' | Out-Null
+    if ($RestartExplorer) {
+        Stop-Process -Name explorer -Force -ErrorAction SilentlyContinue
+        Start-Process -FilePath explorer.exe -ErrorAction SilentlyContinue
+    }
+}
+
+function Start-LotusOfficeInstaller {
+    $officeRoot = Join-Path $root 'Office2016Mondo'
+    $officeInstallScript = Join-Path $officeRoot 'InstallOfficeAfterLogon.cmd'
+    $officeLog = Join-Path $root 'Office2016MondoInstall.log'
+    $officeTask = 'Lotus Office 2016 Mondo Online Install'
+
+    if (-not (Test-Path $officeInstallScript)) {
+        Write-LotusFileLog $officeLog "Office install script not found: $officeInstallScript"
         return
     }
 
-    New-Item -ItemType Directory -Force -Path $profilesRoot | Out-Null
-
-    $profileList = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList'
-    New-Item -Path $profileList -Force | Out-Null
-    New-ItemProperty -Path $profileList -Name 'ProfilesDirectory' -PropertyType ExpandString -Value $profilesRoot -Force | Out-Null
-    New-ItemProperty -Path $profileList -Name 'Default' -PropertyType ExpandString -Value (Join-Path $profilesRoot 'Default') -Force | Out-Null
-    New-ItemProperty -Path $profileList -Name 'Public' -PropertyType ExpandString -Value (Join-Path $profilesRoot 'Public') -Force | Out-Null
-    Write-Output "Default profile root set to $profilesRoot"
-
-    foreach ($templateName in @('Default', 'Public')) {
-        $source = Join-Path $env:SystemDrive "Users\$templateName"
-        $destination = Join-Path $profilesRoot $templateName
-        if ((Test-Path $source) -and -not (Test-Path $destination)) {
-            & robocopy.exe $source $destination /E /COPYALL /XJ /R:1 /W:1 /NFL /NDL /NJH /NJS /NP | Out-Null
-            Write-Output "Staged profile template: $destination"
-        }
+    Write-LotusFileLog $officeLog 'First-logon Office trigger reached.'
+    try {
+        & schtasks.exe /Run /TN $officeTask 2>&1 |
+            ForEach-Object { Write-LotusFileLog $officeLog "schtasks /Run: $_" }
+        Write-LotusFileLog $officeLog "Office scheduled task run exit code: $LASTEXITCODE"
+    } catch {
+        Write-LotusFileLog $officeLog "Office scheduled task run failed: $($_.Exception.Message)"
     }
 
-    attrib.exe +h (Join-Path $profilesRoot 'Default') 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        try {
+            $process = Start-Process -FilePath 'cmd.exe' -ArgumentList "/d /c `"$officeInstallScript`"" -WindowStyle Hidden -PassThru
+            Write-LotusFileLog $officeLog "Started direct Office install fallback with PID $($process.Id)."
+        } catch {
+            Write-LotusFileLog $officeLog "Direct Office install fallback failed: $($_.Exception.Message)"
+        }
+    }
 }
 
 if ($Stage -eq 'FirstLogon') {
+    Set-LotusCurrentUserDefaults -RestartExplorer
+    Start-LotusOfficeInstaller
     Install-LotusCurrentUserAppxPayload
     Start-LotusMicrosoftStoreInstaller
     Repair-LotusMicrosoftStore
@@ -632,7 +739,16 @@ if ($Stage -eq 'FirstLogon') {
     exit 0
 }
 
-Set-LotusProfileRoot
+if ($Stage -eq 'UserDefaults') {
+    Set-LotusCurrentUserDefaults
+    exit 0
+}
+
+if ($Stage -eq 'UserDefaultsDelayed') {
+    Start-Sleep -Seconds 25
+    Set-LotusCurrentUserDefaults -RestartExplorer
+    exit 0
+}
 
 reg.exe add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v EnableLUA /t REG_DWORD /d 1 /f | Out-Null
 reg.exe add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System" /v ConsentPromptBehaviorAdmin /t REG_DWORD /d 0 /f | Out-Null
@@ -712,6 +828,7 @@ $officeRoot = Join-Path $root 'Office2016Mondo'
 $officeConfig = Join-Path $officeRoot 'configuration.xml'
 if (Test-Path $officeConfig) {
     $officeInstallScript = Join-Path $officeRoot 'InstallOfficeAfterLogon.cmd'
+    Write-Output "Office payload detected: $officeRoot"
     $officeInstallContent = @"
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
@@ -755,14 +872,18 @@ exit /b !INSTALL_EXIT!
 "@
     Set-Content -Path $officeInstallScript -Value $officeInstallContent -Encoding ASCII
     $officeTaskCommand = 'cmd.exe /d /c "%WINDIR%\Setup\Lotus\Office2016Mondo\InstallOfficeAfterLogon.cmd"'
-    & schtasks.exe /Create /TN 'Lotus Office 2016 Mondo Online Install' /SC ONLOGON /DELAY 0002:00 /RL HIGHEST /RU SYSTEM /TR $officeTaskCommand /F |
+    & schtasks.exe /Create /TN 'Lotus Office 2016 Mondo Online Install' /SC ONLOGON /DELAY 0001:00 /RL HIGHEST /RU SYSTEM /TR $officeTaskCommand /F |
         ForEach-Object { Write-Output "Office task: $_" }
     Write-Output "Office task creation exit code: $LASTEXITCODE"
     & reg.exe add 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' /v 'LotusOffice2016Mondo' /t REG_SZ /d $officeTaskCommand /f | Out-Null
     Write-Output "Office RunOnce creation exit code: $LASTEXITCODE"
+} else {
+    Write-Output "Office payload config not found: $officeConfig"
 }
 
 $firstLogonCommand = 'cmd.exe /d /c powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%WINDIR%\Setup\Lotus\LotusPostInstall.ps1" -Stage FirstLogon >> "%WINDIR%\Setup\Lotus\LotusFirstLogon.log" 2>&1'
+$userDefaultsCommand = 'cmd.exe /d /c start "" /min powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%WINDIR%\Setup\Lotus\LotusPostInstall.ps1" -Stage UserDefaultsDelayed >> "%WINDIR%\Setup\Lotus\LotusUserDefaults.log" 2>&1'
+& reg.exe add 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' /v '000LotusUserDefaults' /t REG_SZ /d $userDefaultsCommand /f | Out-Null
 & reg.exe add 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' /v 'LotusFirstLogonStoreXbox' /t REG_SZ /d $firstLogonCommand /f | Out-Null
 Write-Output "First-logon Store/Xbox RunOnce creation exit code: $LASTEXITCODE"
 '@
@@ -1199,9 +1320,15 @@ Write-Output "Prevent installation of New Outlook:"
 Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\Windows Mail' 'PreventRun' 'REG_DWORD' '1'
 
 Write-Output "Applying Lotus desktop, privacy, update, and security defaults:"
-Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' 'ProfilesDirectory' 'REG_EXPAND_SZ' 'D:\Users'
-Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' 'Default' 'REG_EXPAND_SZ' 'D:\Users\Default'
-Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' 'Public' 'REG_EXPAND_SZ' 'D:\Users\Public'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' 'ProfilesDirectory' 'REG_EXPAND_SZ' '%SystemDrive%\Users'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' 'Default' 'REG_EXPAND_SZ' '%SystemDrive%\Users\Default'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList' 'Public' 'REG_EXPAND_SZ' '%SystemDrive%\Users\Public'
+foreach ($geoHive in @('HKLM\zNTUSER', 'HKLM\zDEFAULT')) {
+    Set-RegistryValue "$geoHive\Control Panel\International\Geo" 'Name' 'REG_SZ' 'US'
+    Set-RegistryValue "$geoHive\Control Panel\International\Geo" 'Nation' 'REG_SZ' '244'
+}
+Set-RegistryValue 'HKLM\zSYSTEM\ControlSet001\Control\Nls\Geo' 'Name' 'REG_SZ' 'US'
+Set-RegistryValue 'HKLM\zSYSTEM\ControlSet001\Control\Nls\Geo' 'Nation' 'REG_SZ' '244'
 Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' 'NoAutoUpdate' 'REG_DWORD' '1'
 Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' 'AUOptions' 'REG_DWORD' '2'
 Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' 'ScheduledInstallDay' 'REG_DWORD' '0'
@@ -1241,7 +1368,13 @@ Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explor
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'SearchboxTaskbarMode' 'REG_DWORD' '1'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'ShowTaskViewButton' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'Start_Layout' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'TaskbarMn' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer' 'link' 'REG_BINARY' '00000000'
+foreach ($themeHive in @('HKLM\zNTUSER', 'HKLM\zDEFAULT')) {
+    Set-RegistryValue "$themeHive\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" 'AppsUseLightTheme' 'REG_DWORD' '0'
+    Set-RegistryValue "$themeHive\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" 'SystemUsesLightTheme' 'REG_DWORD' '0'
+    Set-RegistryValue "$themeHive\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" 'EnableTransparency' 'REG_DWORD' '1'
+}
 $classicContextMenuKey = 'Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32'
 foreach ($userHive in @('HKLM\zNTUSER', 'HKLM\zDEFAULT')) {
     Set-RegistryDefaultValue "$userHive\$classicContextMenuKey" ''
@@ -1251,6 +1384,12 @@ Set-RegistryDefaultValue $classicContextActiveSetup 'Lotus Classic Context Menu'
 Set-RegistryValue $classicContextActiveSetup 'IsInstalled' 'REG_DWORD' '1'
 Set-RegistryValue $classicContextActiveSetup 'Version' 'REG_SZ' '1,0,0,0'
 Set-RegistryValue $classicContextActiveSetup 'StubPath' 'REG_EXPAND_SZ' 'cmd.exe /d /c reg add "HKCU\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32" /ve /f'
+$lotusUserDefaultsActiveSetup = 'HKLM\zSOFTWARE\Microsoft\Active Setup\Installed Components\LotusUserDefaults'
+Set-RegistryDefaultValue $lotusUserDefaultsActiveSetup 'Lotus User Defaults'
+Set-RegistryValue $lotusUserDefaultsActiveSetup 'IsInstalled' 'REG_DWORD' '1'
+Set-RegistryValue $lotusUserDefaultsActiveSetup 'Version' 'REG_SZ' '1,0,0,0'
+Set-RegistryValue $lotusUserDefaultsActiveSetup 'StubPath' 'REG_EXPAND_SZ' 'cmd.exe /d /c start "" /min powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%WINDIR%\Setup\Lotus\LotusPostInstall.ps1" -Stage UserDefaultsDelayed >> "%WINDIR%\Setup\Lotus\LotusUserDefaults.log" 2>&1'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' '000LotusUserDefaults' 'REG_SZ' 'cmd.exe /d /c start "" /min powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%WINDIR%\Setup\Lotus\LotusPostInstall.ps1" -Stage UserDefaultsDelayed >> "%WINDIR%\Setup\Lotus\LotusUserDefaults.log" 2>&1'
 $lotusDefaultWallpaper = 'C:\Windows\Setup\Lotus\Wallpapers\LotusDefault.jpg'
 foreach ($desktopHive in @('HKLM\zDEFAULT\Control Panel\Desktop', 'HKLM\zNTUSER\Control Panel\Desktop')) {
     Set-RegistryValue $desktopHive 'WallPaper' 'REG_SZ' $lotusDefaultWallpaper
