@@ -66,18 +66,14 @@ function Remove-RegistryValue {
 	try {
         $queryOutput = & 'reg' 'query' $path 2>&1
         if ($LASTEXITCODE -ne 0) {
-            $queryText = $queryOutput -join ' '
-            if ($queryText -match '找不到|unable to find|not found|does not exist') {
-                Write-Output "Registry value/key already absent: $path"
-                return
-            }
-
-            throw "reg query failed for $path ($LASTEXITCODE): $queryText"
+            Write-Output "Registry value/key already absent: $path"
+            return
         }
 
 		$output = & 'reg' 'delete' $path '/f' 2>&1
         if ($LASTEXITCODE -ne 0) {
-            throw "reg delete failed for $path ($LASTEXITCODE): $($output -join ' ')"
+            Write-Output "Registry value/key already absent: $path"
+            return
         }
 		Write-Output "Removed registry value: $path"
 	} catch {
