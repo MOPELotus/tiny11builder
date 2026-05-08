@@ -64,10 +64,24 @@ function Remove-RegistryValue {
 		[string]$path
 	)
 	try {
-		& 'reg' 'delete' $path '/f' | Out-Null
+        $queryOutput = & 'reg' 'query' $path 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            $queryText = $queryOutput -join ' '
+            if ($queryText -match '找不到|unable to find|not found|does not exist') {
+                Write-Output "Registry value/key already absent: $path"
+                return
+            }
+
+            throw "reg query failed for $path ($LASTEXITCODE): $queryText"
+        }
+
+		$output = & 'reg' 'delete' $path '/f' 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "reg delete failed for $path ($LASTEXITCODE): $($output -join ' ')"
+        }
 		Write-Output "Removed registry value: $path"
 	} catch {
-		Write-Output "Error removing registry value: $_"
+		throw "Error removing registry value: $_"
 	}
 }
 
@@ -1217,8 +1231,8 @@ Remove-PathIfExists -Path "$ScratchDisk\scratchdir\Program Files (x86)\Microsoft
 Write-Output "Keeping Microsoft Edge WebView runtime for Store, Xbox, and OOBE compatibility."
 Write-Output "Removing OneDrive:"
 if (Test-Path -Path "$ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe") {
-    & 'takeown' '/f' "$ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe" | Out-Null
-    & 'icacls' "$ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe" '/grant' "$($adminGroup.Value):(F)" '/T' '/C' | Out-Null
+    & takeown.exe '/f' "$ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe" 2>&1 | Out-Null
+    & icacls.exe "$ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe" '/grant' '*S-1-5-32-544:F' '/C' 2>&1 | Out-Null
     Remove-PathIfExists -Path "$ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe"
 } else {
     Write-Output "Path already absent: $ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe"
