@@ -270,6 +270,9 @@ try {
     }
 
     $finalIso = Join-Path $UupRoot 'Lotus_tiny11_26100_ProWorkstation_zh-cn.iso'
+    if (Test-Path -LiteralPath $finalIso) {
+        Remove-Item -LiteralPath $finalIso -Force
+    }
     Move-Item -LiteralPath $repoIso -Destination $finalIso -Force
     Write-Log "Final tiny11 ISO: $finalIso"
 
