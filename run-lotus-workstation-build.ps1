@@ -271,7 +271,13 @@ try {
 
     $finalIso = Join-Path $UupRoot 'Lotus_tiny11_26100_ProWorkstation_zh-cn.iso'
     if (Test-Path -LiteralPath $finalIso) {
-        Remove-Item -LiteralPath $finalIso -Force
+        try {
+            Remove-Item -LiteralPath $finalIso -Force -ErrorAction Stop
+        } catch {
+            $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+            Write-Log "Final ISO target is locked, writing timestamped ISO instead: $($_.Exception.Message)"
+            $finalIso = Join-Path $UupRoot "Lotus_tiny11_26100_ProWorkstation_zh-cn_$timestamp.iso"
+        }
     }
     Move-Item -LiteralPath $repoIso -Destination $finalIso -Force
     Write-Log "Final tiny11 ISO: $finalIso"
