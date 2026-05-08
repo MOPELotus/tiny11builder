@@ -49,10 +49,13 @@ function Set-RegistryValue {
         [string]$value
     )
     try {
-        & 'reg' 'add' $path '/v' $name '/t' $type '/d' $value '/f' | Out-Null
+        $output = & 'reg' 'add' $path '/v' $name '/t' $type '/d' $value '/f' 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "reg add failed for $path\$name ($LASTEXITCODE): $($output -join ' ')"
+        }
         Write-Output "Set registry value: $path\$name"
     } catch {
-        Write-Output "Error setting registry value: $_"
+        throw "Error setting registry value: $_"
     }
 }
 
@@ -75,13 +78,16 @@ function Set-RegistryDefaultValue {
     )
     try {
         if ($value -eq '') {
-            & 'reg' 'add' $path '/ve' '/f' | Out-Null
+            $output = & 'reg' 'add' $path '/ve' '/f' 2>&1
         } else {
-            & 'reg' 'add' $path '/ve' '/d' $value '/f' | Out-Null
+            $output = & 'reg' 'add' $path '/ve' '/d' $value '/f' 2>&1
+        }
+        if ($LASTEXITCODE -ne 0) {
+            throw "reg add default failed for $path ($LASTEXITCODE): $($output -join ' ')"
         }
         Write-Output "Set default registry value: $path"
     } catch {
-        Write-Output "Error setting default registry value: $_"
+        throw "Error setting default registry value: $_"
     }
 }
 
@@ -1208,13 +1214,7 @@ Write-Output "Removing Edge:"
 Remove-PathIfExists -Path "$ScratchDisk\scratchdir\Program Files (x86)\Microsoft\Edge" -Recurse
 Remove-PathIfExists -Path "$ScratchDisk\scratchdir\Program Files (x86)\Microsoft\EdgeUpdate" -Recurse
 Remove-PathIfExists -Path "$ScratchDisk\scratchdir\Program Files (x86)\Microsoft\EdgeCore" -Recurse
-if (Test-Path -Path "$ScratchDisk\scratchdir\Windows\System32\Microsoft-Edge-Webview") {
-    & 'takeown' '/f' "$ScratchDisk\scratchdir\Windows\System32\Microsoft-Edge-Webview" '/r' | Out-Null
-    & 'icacls' "$ScratchDisk\scratchdir\Windows\System32\Microsoft-Edge-Webview" '/grant' "$($adminGroup.Value):(F)" '/T' '/C' | Out-Null
-    Remove-PathIfExists -Path "$ScratchDisk\scratchdir\Windows\System32\Microsoft-Edge-Webview" -Recurse
-} else {
-    Write-Output "Path already absent: $ScratchDisk\scratchdir\Windows\System32\Microsoft-Edge-Webview"
-}
+Write-Output "Keeping Microsoft Edge WebView runtime for Store, Xbox, and OOBE compatibility."
 Write-Output "Removing OneDrive:"
 if (Test-Path -Path "$ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe") {
     & 'takeown' '/f' "$ScratchDisk\scratchdir\Windows\System32\OneDriveSetup.exe" | Out-Null
@@ -1282,7 +1282,7 @@ Write-Output "Disabling BitLocker Device Encryption"
 Set-RegistryValue 'HKLM\zSYSTEM\ControlSet001\Control\BitLocker' 'PreventDeviceEncryption' 'REG_DWORD' '1'
 Write-Output "Disabling Chat icon:"
 Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\Windows Chat' 'ChatIcon' 'REG_DWORD' '3'
-Set-RegistryValue 'HKLM\zNTUSER\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'TaskbarMn' 'REG_DWORD' '0'
+Write-Output "Taskbar current-user defaults are applied at first logon."
 Write-Output "Removing Edge related registries"
 Remove-RegistryValue "HKEY_LOCAL_MACHINE\zSOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge"
 Remove-RegistryValue "HKEY_LOCAL_MACHINE\zSOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Microsoft Edge Update"
@@ -1361,14 +1361,9 @@ Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Syst
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'LaunchTo' 'REG_DWORD' '1'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'HideFileExt' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'ShowSecondsInSystemClock' 'REG_DWORD' '1'
-Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'TaskbarAl' 'REG_DWORD' '0'
-Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'TaskbarDa' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'TaskbarGlomLevel' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'MMTaskbarGlomLevel' 'REG_DWORD' '0'
-Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'SearchboxTaskbarMode' 'REG_DWORD' '1'
-Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'ShowTaskViewButton' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'Start_Layout' 'REG_DWORD' '1'
-Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'TaskbarMn' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer' 'link' 'REG_BINARY' '00000000'
 foreach ($themeHive in @('HKLM\zNTUSER', 'HKLM\zDEFAULT')) {
     Set-RegistryValue "$themeHive\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" 'AppsUseLightTheme' 'REG_DWORD' '0'
