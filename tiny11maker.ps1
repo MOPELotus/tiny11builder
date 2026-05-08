@@ -96,6 +96,29 @@ function Remove-RegistryValue {
 	}
 }
 
+function Remove-RegistryNamedValue {
+    param (
+        [string]$path,
+        [string]$name
+    )
+    try {
+        $queryOutput = & 'reg' 'query' $path '/v' $name 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Output "Registry value already absent: $path\$name"
+            return
+        }
+
+        $output = & 'reg' 'delete' $path '/v' $name '/f' 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Output "Registry value already absent: $path\$name"
+            return
+        }
+        Write-Output "Removed registry value: $path\$name"
+    } catch {
+        throw "Error removing registry value: $_"
+    }
+}
+
 function Set-RegistryDefaultValue {
     param (
         [string]$path,
@@ -899,6 +922,9 @@ function Invoke-LotusFirstLogonSetup {
     }
 
     try {
+        Write-LotusFileLog $logPath 'Waiting 60 seconds for Explorer and Windows shell personalization to settle.'
+        Start-Sleep -Seconds 60
+
         Write-LotusFileLog $logPath '[1/6] Applying current-user defaults.'
         Set-LotusCurrentUserDefaults -RestartExplorer
 
@@ -1063,10 +1089,6 @@ if (Test-LotusLtscStorePayload) {
 } else {
     Start-LotusMicrosoftStoreInstaller -AllUsers
 }
-
-$firstLogonCommand = 'cmd.exe /d /c ""C:\Windows\Setup\Lotus\LotusFirstLogon.cmd""'
-& reg.exe add 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' /v 'LotusFirstLogonStoreXbox' /t REG_SZ /d $firstLogonCommand /f | Out-Null
-Write-Output "Visible first-logon Store/Xbox RunOnce creation exit code: $LASTEXITCODE"
 '@
 
     $firstLogonCmd = @'
@@ -1567,6 +1589,7 @@ Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explor
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'Start_Layout' 'REG_DWORD' '1'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'TaskbarMn' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer' 'link' 'REG_BINARY' '00000000'
+Remove-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\CloudStore\Store\Cache\DefaultAccount'
 foreach ($themeHive in @('HKLM\zNTUSER', 'HKLM\zDEFAULT')) {
     Set-RegistryValue "$themeHive\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" 'AppsUseLightTheme' 'REG_DWORD' '1'
     Set-RegistryValue "$themeHive\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" 'SystemUsesLightTheme' 'REG_DWORD' '1'
@@ -1582,12 +1605,10 @@ Set-RegistryDefaultValue $classicContextActiveSetup 'Lotus Classic Context Menu'
 Set-RegistryValue $classicContextActiveSetup 'IsInstalled' 'REG_DWORD' '1'
 Set-RegistryValue $classicContextActiveSetup 'Version' 'REG_SZ' '1,0,0,0'
 Set-RegistryValue $classicContextActiveSetup 'StubPath' 'REG_EXPAND_SZ' 'cmd.exe /d /c reg add "HKCU\Software\Classes\CLSID\{86ca1aa0-34aa-4e8b-a509-50c905bae2a2}\InprocServer32" /ve /f'
-$lotusUserDefaultsActiveSetup = 'HKLM\zSOFTWARE\Microsoft\Active Setup\Installed Components\LotusUserDefaults'
-Set-RegistryDefaultValue $lotusUserDefaultsActiveSetup 'Lotus User Defaults'
-Set-RegistryValue $lotusUserDefaultsActiveSetup 'IsInstalled' 'REG_DWORD' '1'
-Set-RegistryValue $lotusUserDefaultsActiveSetup 'Version' 'REG_SZ' '1,0,0,0'
-Set-RegistryValue $lotusUserDefaultsActiveSetup 'StubPath' 'REG_SZ' 'cmd.exe /d /c ""C:\Windows\Setup\Lotus\LotusUserDefaults.cmd""'
-Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' 'LotusFirstLogonStoreXbox' 'REG_SZ' 'cmd.exe /d /c ""C:\Windows\Setup\Lotus\LotusFirstLogon.cmd""'
+Remove-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Active Setup\Installed Components\LotusUserDefaults'
+Remove-RegistryNamedValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' 'LotusFirstLogonStoreXbox'
+Remove-RegistryNamedValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' '000LotusUserDefaults'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\RunOnce' 'LotusFirstLogonStoreXbox' 'REG_SZ' 'cmd.exe /d /c ""C:\Windows\Setup\Lotus\LotusFirstLogon.cmd""'
 $lotusDefaultWallpaper = 'C:\Windows\Web\Wallpaper\Lotus\LotusDefault.jpg'
 foreach ($desktopHive in @('HKLM\zDEFAULT\Control Panel\Desktop', 'HKLM\zNTUSER\Control Panel\Desktop')) {
     Set-RegistryValue $desktopHive 'WallPaper' 'REG_SZ' $lotusDefaultWallpaper
