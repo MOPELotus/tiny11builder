@@ -93,6 +93,23 @@ function Get-IsoDriveLetter {
     return [string]$volume.DriveLetter
 }
 
+function Stop-StaleBuildProcesses {
+    $ownPid = $PID
+    $repoPattern = [regex]::Escape($RepoRoot)
+    $staleProcesses = Get-CimInstance Win32_Process |
+        Where-Object {
+            ($_.ProcessId -ne $ownPid) -and (
+                ($_.CommandLine -match $repoPattern) -or
+                ($_.Name -in @('Dism.exe', 'dism.exe', 'oscdimg.exe'))
+            )
+        }
+
+    foreach ($process in $staleProcesses) {
+        Write-Log "Stopping stale build process: PID $($process.ProcessId) $($process.Name)"
+        Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+}
+
 $mountedImages = @()
 
 try {
@@ -105,6 +122,7 @@ try {
         throw 'This build script must run elevated.'
     }
     Write-Log "Running elevated as $($identity.Name)"
+    Stop-StaleBuildProcesses
 
     $sourceFolder = Join-Path $UupRoot '26100.1.240331-1435.GE_RELEASE_CLIENTMULTI_X64FRE_ZH-CN'
     $sourceWim = Join-Path $sourceFolder 'sources\install.wim'
@@ -130,6 +148,10 @@ try {
             if (Test-Path -LiteralPath $resolved) {
                 Write-Log "Removing stale scratch path: $resolved"
                 Remove-Item -LiteralPath $resolved -Recurse -Force -ErrorAction SilentlyContinue 2>$null
+                Start-Sleep -Seconds 1
+                if (Test-Path -LiteralPath $resolved) {
+                    throw "Failed to remove stale scratch path, likely locked by another process: $resolved"
+                }
             }
         }
     }
