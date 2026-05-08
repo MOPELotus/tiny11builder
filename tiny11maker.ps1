@@ -278,6 +278,11 @@ function Add-LotusSetupPayload {
     if (Test-Path -Path $PayloadSource) {
         Write-Output "Staging Lotus payload from $PayloadSource"
         Copy-Item -Path (Join-Path $PayloadSource '*') -Destination $lotusRoot -Recurse -Force -ErrorAction SilentlyContinue
+        Get-ChildItem -LiteralPath $lotusRoot -Recurse -File -ErrorAction SilentlyContinue |
+            ForEach-Object {
+                Unblock-File -LiteralPath $_.FullName -ErrorAction SilentlyContinue
+                Remove-Item -LiteralPath $_.FullName -Stream Zone.Identifier -ErrorAction SilentlyContinue
+            }
     } else {
         Write-Output "No payload folder found at $PayloadSource. Runtime, font, Office and PowerShell installers will be skipped unless added later."
     }
@@ -288,7 +293,16 @@ param (
 )
 
 $ErrorActionPreference = 'SilentlyContinue'
+$env:SEE_MASK_NOZONECHECKS = '1'
 $root = Join-Path $env:WINDIR 'Setup\Lotus'
+
+if (Test-Path $root) {
+    Get-ChildItem -LiteralPath $root -Recurse -File -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            Unblock-File -LiteralPath $_.FullName -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $_.FullName -Stream Zone.Identifier -ErrorAction SilentlyContinue
+        }
+}
 
 function Start-LotusProcess {
     param (
@@ -663,6 +677,8 @@ function Set-LotusCurrentUserDefaults {
     Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\InputPersonalization\TrainedDataStore' 'HarvestContacts' 'DWord' 0
     Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Personalization\Settings' 'AcceptedPrivacyPolicy' 'DWord' 0
     Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\CloudExperienceHost\Intent\PersonalDataExport' 'PDEShown' 'DWord' 2
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Attachments' 'SaveZoneInformation' 'DWord' 1
+    Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Associations' 'LowRiskFileTypes' 'String' '.exe;.msi;.cmd;.bat;.ps1;.vbs;'
 
     Set-LotusCurrentUserRegValue 'HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers' 'DisableAutoplay' 'DWord' 1
     Set-LotusCurrentUserRegValue 'HKCU:\Control Panel\Desktop' 'AutoEndTasks' 'String' '1'
@@ -897,21 +913,38 @@ exit /b !INSTALL_EXIT!
     Write-Output "Office payload config not found: $officeConfig"
 }
 
-$firstLogonCommand = 'cmd.exe /d /c powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%WINDIR%\Setup\Lotus\LotusPostInstall.ps1" -Stage FirstLogon >> "%WINDIR%\Setup\Lotus\LotusFirstLogon.log" 2>&1'
-$userDefaultsCommand = 'cmd.exe /d /c start "" /min powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%WINDIR%\Setup\Lotus\LotusPostInstall.ps1" -Stage UserDefaultsDelayed >> "%WINDIR%\Setup\Lotus\LotusUserDefaults.log" 2>&1'
+$firstLogonCommand = 'wscript.exe "%WINDIR%\Setup\Lotus\LotusFirstLogon.vbs"'
+$userDefaultsCommand = 'wscript.exe "%WINDIR%\Setup\Lotus\LotusUserDefaults.vbs"'
 & reg.exe add 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' /v '000LotusUserDefaults' /t REG_SZ /d $userDefaultsCommand /f | Out-Null
 & reg.exe add 'HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' /v 'LotusFirstLogonStoreXbox' /t REG_SZ /d $firstLogonCommand /f | Out-Null
 Write-Output "First-logon Store/Xbox RunOnce creation exit code: $LASTEXITCODE"
 '@
 
+    $firstLogonVbs = @'
+Set shell = CreateObject("WScript.Shell")
+shell.Environment("PROCESS")("SEE_MASK_NOZONECHECKS") = "1"
+cmd = "cmd.exe /d /c powershell.exe -NoProfile -ExecutionPolicy Bypass -File ""%WINDIR%\Setup\Lotus\LotusPostInstall.ps1"" -Stage FirstLogon >> ""%WINDIR%\Setup\Lotus\LotusFirstLogon.log"" 2>&1"
+shell.Run shell.ExpandEnvironmentStrings(cmd), 0, False
+'@
+
+    $userDefaultsVbs = @'
+Set shell = CreateObject("WScript.Shell")
+shell.Environment("PROCESS")("SEE_MASK_NOZONECHECKS") = "1"
+cmd = "cmd.exe /d /c powershell.exe -NoProfile -ExecutionPolicy Bypass -File ""%WINDIR%\Setup\Lotus\LotusPostInstall.ps1"" -Stage UserDefaultsDelayed >> ""%WINDIR%\Setup\Lotus\LotusUserDefaults.log"" 2>&1"
+shell.Run shell.ExpandEnvironmentStrings(cmd), 0, False
+'@
+
     $setupComplete = @'
 @echo off
+set SEE_MASK_NOZONECHECKS=1
 set LOG=%WINDIR%\Setup\Lotus\LotusPostInstall.log
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%WINDIR%\Setup\Lotus\LotusPostInstall.ps1" >> "%LOG%" 2>&1
 exit /b 0
 '@
 
     Set-Content -Path (Join-Path $lotusRoot 'LotusPostInstall.ps1') -Value $postInstallScript -Encoding ASCII
+    Set-Content -Path (Join-Path $lotusRoot 'LotusFirstLogon.vbs') -Value $firstLogonVbs -Encoding ASCII
+    Set-Content -Path (Join-Path $lotusRoot 'LotusUserDefaults.vbs') -Value $userDefaultsVbs -Encoding ASCII
     Set-Content -Path (Join-Path $scriptsRoot 'SetupComplete.cmd') -Value $setupComplete -Encoding ASCII
 }
 
@@ -1371,9 +1404,14 @@ Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Syst
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'LaunchTo' 'REG_DWORD' '1'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'HideFileExt' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'ShowSecondsInSystemClock' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'TaskbarAl' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'TaskbarDa' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'TaskbarGlomLevel' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'MMTaskbarGlomLevel' 'REG_DWORD' '0'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'SearchboxTaskbarMode' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'ShowTaskViewButton' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'Start_Layout' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'TaskbarMn' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer' 'link' 'REG_BINARY' '00000000'
 foreach ($themeHive in @('HKLM\zNTUSER', 'HKLM\zDEFAULT')) {
     Set-RegistryValue "$themeHive\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" 'AppsUseLightTheme' 'REG_DWORD' '0'
@@ -1393,8 +1431,8 @@ $lotusUserDefaultsActiveSetup = 'HKLM\zSOFTWARE\Microsoft\Active Setup\Installed
 Set-RegistryDefaultValue $lotusUserDefaultsActiveSetup 'Lotus User Defaults'
 Set-RegistryValue $lotusUserDefaultsActiveSetup 'IsInstalled' 'REG_DWORD' '1'
 Set-RegistryValue $lotusUserDefaultsActiveSetup 'Version' 'REG_SZ' '1,0,0,0'
-Set-RegistryValue $lotusUserDefaultsActiveSetup 'StubPath' 'REG_EXPAND_SZ' 'cmd.exe /d /c start "" /min powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%WINDIR%\Setup\Lotus\LotusPostInstall.ps1" -Stage UserDefaultsDelayed >> "%WINDIR%\Setup\Lotus\LotusUserDefaults.log" 2>&1'
-Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' '000LotusUserDefaults' 'REG_SZ' 'cmd.exe /d /c start "" /min powershell.exe -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File "%WINDIR%\Setup\Lotus\LotusPostInstall.ps1" -Stage UserDefaultsDelayed >> "%WINDIR%\Setup\Lotus\LotusUserDefaults.log" 2>&1'
+Set-RegistryValue $lotusUserDefaultsActiveSetup 'StubPath' 'REG_EXPAND_SZ' 'wscript.exe "%WINDIR%\Setup\Lotus\LotusUserDefaults.vbs"'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\RunOnce' '000LotusUserDefaults' 'REG_SZ' 'wscript.exe "%WINDIR%\Setup\Lotus\LotusUserDefaults.vbs"'
 $lotusDefaultWallpaper = 'C:\Windows\Setup\Lotus\Wallpapers\LotusDefault.jpg'
 foreach ($desktopHive in @('HKLM\zDEFAULT\Control Panel\Desktop', 'HKLM\zNTUSER\Control Panel\Desktop')) {
     Set-RegistryValue $desktopHive 'WallPaper' 'REG_SZ' $lotusDefaultWallpaper
@@ -1404,6 +1442,12 @@ foreach ($desktopHive in @('HKLM\zDEFAULT\Control Panel\Desktop', 'HKLM\zNTUSER\
 
 Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Icons' '29' 'REG_EXPAND_SZ' '%windir%\System32\imageres.dll,-17'
 Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Explorer' 'NoDriveTypeAutoRun' 'REG_DWORD' '255'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Attachments' 'SaveZoneInformation' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\Policies\Associations' 'LowRiskFileTypes' 'REG_SZ' '.exe;.msi;.cmd;.bat;.ps1;.vbs;'
+foreach ($attachmentHive in @('HKLM\zNTUSER', 'HKLM\zDEFAULT')) {
+    Set-RegistryValue "$attachmentHive\Software\Microsoft\Windows\CurrentVersion\Policies\Attachments" 'SaveZoneInformation' 'REG_DWORD' '1'
+    Set-RegistryValue "$attachmentHive\Software\Microsoft\Windows\CurrentVersion\Policies\Associations" 'LowRiskFileTypes' 'REG_SZ' '.exe;.msi;.cmd;.bat;.ps1;.vbs;'
+}
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\AutoplayHandlers' 'DisableAutoplay' 'REG_DWORD' '1'
 Set-RegistryValue 'HKLM\zNTUSER\Control Panel\Desktop' 'AutoEndTasks' 'REG_SZ' '1'
 Set-RegistryValue 'HKLM\zNTUSER\Control Panel\Desktop' 'HungAppTimeout' 'REG_SZ' '2000'
