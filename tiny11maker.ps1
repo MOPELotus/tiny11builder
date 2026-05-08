@@ -292,10 +292,6 @@ function Get-VCRedistArguments {
         [string]$InstallerName
     )
 
-    if ($InstallerName -match '2005') {
-        return '/q'
-    }
-
     if ($InstallerName -match '2008') {
         return '/q'
     }
@@ -686,7 +682,11 @@ $vcRoot = Join-Path $root 'VCRedist'
 if (Test-Path $vcRoot) {
     Get-ChildItem -Path $vcRoot -Recurse -Filter '*.exe' |
         ForEach-Object {
-            Start-LotusProcess $_.FullName (Get-VCRedistArguments $_.Name)
+            if ($_.Name -match '2005') {
+                Write-Output "Skipping unsupported VC++ 2005 installer: $($_.Name)"
+            } else {
+                Start-LotusProcess $_.FullName (Get-VCRedistArguments $_.Name)
+            }
         }
     Get-ChildItem -Path $vcRoot -Recurse -Filter '*.msi' |
         ForEach-Object { Start-LotusProcess 'msiexec.exe' "/i `"$($_.FullName)`" /qn /norestart" }
