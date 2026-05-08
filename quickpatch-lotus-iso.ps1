@@ -276,6 +276,17 @@ try {
     Set-Content -Path (Join-Path $scriptsRoot 'SetupComplete.cmd') -Value (Get-HereStringVariable -Text $makerText -Name 'setupComplete') -Encoding ASCII
     Remove-Item -LiteralPath (Join-Path $lotusRoot 'LotusFirstLogon.vbs'), (Join-Path $lotusRoot 'LotusUserDefaults.vbs') -Force -ErrorAction SilentlyContinue
 
+    Write-Status -Status 'running' -Step 'patch store payload'
+    $repoStorePayload = Join-Path $RepoRoot 'payload\Store'
+    $imageStorePayload = Join-Path $lotusRoot 'Store'
+    if (Test-Path -LiteralPath $repoStorePayload) {
+        Write-Log "Replacing Store payload from $repoStorePayload."
+        Remove-Item -LiteralPath $imageStorePayload -Recurse -Force -ErrorAction SilentlyContinue
+        Copy-Item -LiteralPath $repoStorePayload -Destination $imageStorePayload -Recurse -Force
+    } else {
+        Write-Log "No repository Store payload found at $repoStorePayload."
+    }
+
     Write-Status -Status 'running' -Step 'patch registry'
     Write-Log 'Patching offline Default User registry.'
     $ntUser = Load-Hive -Name 'LotusQuick_NTUSER' -Path (Join-Path $mountDir 'Users\Default\ntuser.dat')

@@ -9,12 +9,20 @@ if not exist "*WindowsStore*.appxbundle" if not exist "*WindowsStore*.msixbundle
 if not exist "*WindowsStore*.xml" goto :nofiles
 
 for /f %%i in ('dir /b /o:n *WindowsStore*.appxbundle *WindowsStore*.msixbundle 2^>nul') do set "Store=%%i"
-for /f %%i in ('dir /b *NET.Native.Framework*1.6*.appx 2^>nul ^| find /i "x64"') do set "Framework6X64=%%i"
-for /f %%i in ('dir /b *NET.Native.Framework*1.6*.appx 2^>nul ^| find /i "x86"') do set "Framework6X86=%%i"
-for /f %%i in ('dir /b *NET.Native.Runtime*1.6*.appx 2^>nul ^| find /i "x64"') do set "Runtime6X64=%%i"
-for /f %%i in ('dir /b *NET.Native.Runtime*1.6*.appx 2^>nul ^| find /i "x86"') do set "Runtime6X86=%%i"
-for /f %%i in ('dir /b *VCLibs*140*.appx 2^>nul ^| find /i "x64"') do set "VCLibsX64=%%i"
-for /f %%i in ('dir /b *VCLibs*140*.appx 2^>nul ^| find /i "x86"') do set "VCLibsX86=%%i"
+for /f %%i in ('dir /b /o:n *NET.Native.Framework*1.6*.appx 2^>nul ^| find /i "x64"') do set "Framework6X64=%%i"
+for /f %%i in ('dir /b /o:n *NET.Native.Framework*1.6*.appx 2^>nul ^| find /i "x86"') do set "Framework6X86=%%i"
+for /f %%i in ('dir /b /o:n *NET.Native.Runtime*1.6*.appx 2^>nul ^| find /i "x64"') do set "Runtime6X64=%%i"
+for /f %%i in ('dir /b /o:n *NET.Native.Runtime*1.6*.appx 2^>nul ^| find /i "x86"') do set "Runtime6X86=%%i"
+for /f %%i in ('dir /b /o:n *VCLibs*140*.appx 2^>nul ^| find /i "x64"') do set "VCLibsX64=%%i"
+for /f %%i in ('dir /b /o:n *VCLibs*140*.appx 2^>nul ^| find /i "x86"') do set "VCLibsX86=%%i"
+for /f %%i in ('dir /b /o:n *VCLibs*140.00.UWPDesktop*.appx 2^>nul ^| find /i "x64"') do set "VCLibsUwpX64=%%i"
+for /f %%i in ('dir /b /o:n *VCLibs*140.00.UWPDesktop*.appx 2^>nul ^| find /i "x86"') do set "VCLibsUwpX86=%%i"
+for /f %%i in ('dir /b /o:n *UI.Xaml.2.4*.appx 2^>nul ^| find /i "x64"') do set "Xaml24X64=%%i"
+for /f %%i in ('dir /b /o:n *UI.Xaml.2.4*.appx 2^>nul ^| find /i "x86"') do set "Xaml24X86=%%i"
+for /f %%i in ('dir /b /o:n *UI.Xaml.2.8*.appx 2^>nul ^| find /i "x64"') do set "Xaml28X64=%%i"
+for /f %%i in ('dir /b /o:n *UI.Xaml.2.8*.appx 2^>nul ^| find /i "x86"') do set "Xaml28X86=%%i"
+for /f %%i in ('dir /b /o:n *WindowsAppRuntime*.msix 2^>nul ^| find /i "x64"') do set "AppRuntimeX64=%%i"
+for /f %%i in ('dir /b /o:n *WindowsAppRuntime*.msix 2^>nul ^| find /i "x86"') do set "AppRuntimeX86=%%i"
 
 if exist "*StorePurchaseApp*.appxbundle" if exist "*StorePurchaseApp*.xml" (
 for /f %%i in ('dir /b /o:n *StorePurchaseApp*.appxbundle *StorePurchaseApp*.msixbundle 2^>nul') do set "PurchaseApp=%%i"
@@ -34,17 +42,30 @@ for /f %%i in ('dir /b /o:n *XboxIdentityProvider*.appxbundle *XboxIdentityProvi
 if exist "*XboxIdentityProvider*.msixbundle" if exist "*XboxIdentityProvider*.xml" (
 for /f %%i in ('dir /b /o:n *XboxIdentityProvider*.appxbundle *XboxIdentityProvider*.msixbundle 2^>nul') do set "XboxIdentity=%%i"
 )
+if exist "*GamingServices*.appxbundle" (
+for /f %%i in ('dir /b /o:n *GamingServices*.appxbundle *GamingServices*.msixbundle 2^>nul') do set "GamingServices=%%i"
+)
+if exist "*XboxGamingOverlay*.appxbundle" (
+for /f %%i in ('dir /b /o:n *XboxGamingOverlay*.appxbundle *XboxGamingOverlay*.msixbundle 2^>nul') do set "XboxGamingOverlay=%%i"
+)
+if exist "*GamingApp*.msixbundle" (
+for /f %%i in ('dir /b /o:n *GamingApp*.appxbundle *GamingApp*.msixbundle 2^>nul') do set "GamingApp=%%i"
+)
 
 if /i %arch%==x64 (
-set "DepStore=%VCLibsX64%,%VCLibsX86%,%Framework6X64%,%Framework6X86%,%Runtime6X64%,%Runtime6X86%"
-set "DepPurchase=%VCLibsX64%,%VCLibsX86%,%Framework6X64%,%Framework6X86%,%Runtime6X64%,%Runtime6X86%"
-set "DepXbox=%VCLibsX64%,%VCLibsX86%,%Framework6X64%,%Framework6X86%,%Runtime6X64%,%Runtime6X86%"
-set "DepInstaller=%VCLibsX64%,%VCLibsX86%"
+set "DepLegacy=%VCLibsX64%,%VCLibsX86%,%Framework6X64%,%Framework6X86%,%Runtime6X64%,%Runtime6X86%"
+set "DepModern=%VCLibsX64%,%VCLibsX86%,%VCLibsUwpX64%,%VCLibsUwpX86%,%Xaml24X64%,%Xaml24X86%,%Xaml28X64%,%Xaml28X86%,%AppRuntimeX64%,%AppRuntimeX86%"
+set "DepStore=%DepLegacy%,%VCLibsUwpX64%,%VCLibsUwpX86%,%Xaml24X64%,%Xaml24X86%,%Xaml28X64%,%Xaml28X86%,%AppRuntimeX64%,%AppRuntimeX86%"
+set "DepPurchase=%DepStore%"
+set "DepXbox=%DepStore%"
+set "DepInstaller=%VCLibsX64%,%VCLibsX86%,%VCLibsUwpX64%,%VCLibsUwpX86%,%AppRuntimeX64%,%AppRuntimeX86%"
 ) else (
-set "DepStore=%VCLibsX86%,%Framework6X86%,%Runtime6X86%"
-set "DepPurchase=%VCLibsX86%,%Framework6X86%,%Runtime6X86%"
-set "DepXbox=%VCLibsX86%,%Framework6X86%,%Runtime6X86%"
-set "DepInstaller=%VCLibsX86%"
+set "DepLegacy=%VCLibsX86%,%Framework6X86%,%Runtime6X86%"
+set "DepModern=%VCLibsX86%,%VCLibsUwpX86%,%Xaml24X86%,%Xaml28X86%,%AppRuntimeX86%"
+set "DepStore=%DepLegacy%,%VCLibsUwpX86%,%Xaml24X86%,%Xaml28X86%,%AppRuntimeX86%"
+set "DepPurchase=%DepStore%"
+set "DepXbox=%DepStore%"
+set "DepInstaller=%VCLibsX86%,%VCLibsUwpX86%,%AppRuntimeX86%"
 )
 
 for %%i in (%DepStore%) do (
@@ -90,6 +111,33 @@ echo ============================================================
 echo.
 1>nul 2>nul %PScommand% Add-AppxProvisionedPackage -Online -PackagePath %XboxIdentity% -DependencyPackagePath %DepXbox% -LicensePath Microsoft.XboxIdentityProvider_8wekyb3d8bbwe.xml
 %PScommand% Add-AppxPackage -Path %XboxIdentity%
+)
+if defined GamingServices (
+echo.
+echo ============================================================
+echo Adding Gaming Services
+echo ============================================================
+echo.
+1>nul 2>nul %PScommand% Add-AppxProvisionedPackage -Online -PackagePath %GamingServices% -DependencyPackagePath %DepModern% -SkipLicense
+%PScommand% Add-AppxPackage -Path %GamingServices%
+)
+if defined XboxGamingOverlay (
+echo.
+echo ============================================================
+echo Adding Xbox Game Bar
+echo ============================================================
+echo.
+1>nul 2>nul %PScommand% Add-AppxProvisionedPackage -Online -PackagePath %XboxGamingOverlay% -DependencyPackagePath %DepModern% -SkipLicense
+%PScommand% Add-AppxPackage -Path %XboxGamingOverlay%
+)
+if defined GamingApp (
+echo.
+echo ============================================================
+echo Adding Xbox App
+echo ============================================================
+echo.
+1>nul 2>nul %PScommand% Add-AppxProvisionedPackage -Online -PackagePath %GamingApp% -DependencyPackagePath %DepModern% -SkipLicense
+%PScommand% Add-AppxPackage -Path %GamingApp%
 )
 goto :fin
 

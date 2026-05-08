@@ -492,8 +492,12 @@ function Write-LotusAppxState {
 
 function Test-LotusLtscStorePayload {
     $ltscRoot = Join-Path $root 'Store\LTSC-Add-MicrosoftStore'
+    $storeBundle = Get-ChildItem -Path $ltscRoot -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match 'WindowsStore' -and $_.Extension.ToLowerInvariant() -in @('.appxbundle', '.msixbundle') } |
+        Select-Object -First 1
+
     return (Test-Path (Join-Path $ltscRoot 'Add-Store.cmd')) -and
-        (Test-Path (Join-Path $ltscRoot '*WindowsStore*.appxbundle')) -and
+        ($null -ne $storeBundle) -and
         (Test-Path (Join-Path $ltscRoot '*WindowsStore*.xml'))
 }
 
