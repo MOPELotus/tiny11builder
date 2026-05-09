@@ -926,13 +926,10 @@ function Invoke-LotusFirstLogonSetup {
     }
 
     try {
-        Write-LotusFileLog $logPath 'Waiting 60 seconds for Explorer and Windows shell personalization to settle.'
+        Write-LotusFileLog $logPath 'Waiting 60 seconds for Explorer, network, and AppX services to settle.'
         Start-Sleep -Seconds 60
 
-        Write-LotusFileLog $logPath '[1/6] Applying current-user defaults.'
-        Set-LotusCurrentUserDefaults -RestartExplorer
-
-        Write-LotusFileLog $logPath '[2/6] Restoring Microsoft Store components.'
+        Write-LotusFileLog $logPath '[1/4] Restoring Microsoft Store components.'
         if (Test-LotusLtscStorePayload) {
             Invoke-LotusLtscStoreScript -Stage 'FirstLogonVisible'
         } else {
@@ -940,16 +937,13 @@ function Invoke-LotusFirstLogonSetup {
             Start-LotusMicrosoftStoreInstaller
         }
 
-        Write-LotusFileLog $logPath '[3/6] Repairing Microsoft Store registration.'
+        Write-LotusFileLog $logPath '[2/4] Repairing Microsoft Store registration.'
         Repair-LotusMicrosoftStore
 
-        Write-LotusFileLog $logPath '[4/6] Starting Xbox installer.'
+        Write-LotusFileLog $logPath '[3/4] Starting Xbox installer.'
         Start-LotusXboxInstaller
 
-        Write-LotusFileLog $logPath '[5/6] Reapplying current-user defaults after app registration.'
-        Set-LotusCurrentUserDefaults -RestartExplorer
-
-        Write-LotusFileLog $logPath '[6/6] Capturing final Store/Xbox AppX state.'
+        Write-LotusFileLog $logPath '[4/4] Capturing final Store/Xbox AppX state.'
         Write-LotusAppxState -LogPath $logPath -Scope 'after visible first-logon setup'
 
         New-Item -Path 'HKLM:\SOFTWARE\Lotus\FirstLogon' -Force | Out-Null
@@ -979,10 +973,7 @@ function Invoke-LotusUserDefaultsVisible {
     } catch {
     }
 
-    Write-LotusFileLog $logPath "Applying visible user defaults for $env:USERNAME."
-    Start-Sleep -Seconds 10
-    Set-LotusCurrentUserDefaults -RestartExplorer
-    Write-LotusFileLog $logPath "Visible user defaults finished for $env:USERNAME."
+    Write-LotusFileLog $logPath "Skipping current-user visual defaults for $env:USERNAME; offline Default User settings are authoritative."
 }
 
 if ($Stage -eq 'FirstLogonVisible') {
@@ -1006,13 +997,12 @@ if ($Stage -eq 'UserDefaultsVisible') {
 }
 
 if ($Stage -eq 'UserDefaults') {
-    Set-LotusCurrentUserDefaults
+    Write-Output 'Skipping current-user visual defaults; offline Default User settings are authoritative.'
     exit 0
 }
 
 if ($Stage -eq 'UserDefaultsDelayed') {
-    Start-Sleep -Seconds 25
-    Set-LotusCurrentUserDefaults -RestartExplorer
+    Write-Output 'Skipping delayed current-user visual defaults; offline Default User settings are authoritative.'
     exit 0
 }
 
@@ -1547,9 +1537,15 @@ Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileLis
 foreach ($geoHive in @('HKLM\zNTUSER', 'HKLM\zDEFAULT')) {
     Set-RegistryValue "$geoHive\Control Panel\International\Geo" 'Name' 'REG_SZ' 'US'
     Set-RegistryValue "$geoHive\Control Panel\International\Geo" 'Nation' 'REG_SZ' '244'
+    Set-RegistryValue "$geoHive\Control Panel\International" 'iTime' 'REG_SZ' '1'
+    Set-RegistryValue "$geoHive\Control Panel\International" 'iTLZero' 'REG_SZ' '1'
+    Set-RegistryValue "$geoHive\Control Panel\International" 'sShortTime' 'REG_SZ' 'HH:mm'
+    Set-RegistryValue "$geoHive\Control Panel\International" 'sTimeFormat' 'REG_SZ' 'HH:mm:ss'
 }
 Set-RegistryValue 'HKLM\zSYSTEM\ControlSet001\Control\Nls\Geo' 'Name' 'REG_SZ' 'US'
 Set-RegistryValue 'HKLM\zSYSTEM\ControlSet001\Control\Nls\Geo' 'Nation' 'REG_SZ' '244'
+Set-RegistryValue 'HKLM\zSYSTEM\ControlSet001\Control\Session Manager\Memory Management' 'FeatureSettingsOverride' 'REG_DWORD' '3'
+Set-RegistryValue 'HKLM\zSYSTEM\ControlSet001\Control\Session Manager\Memory Management' 'FeatureSettingsOverrideMask' 'REG_DWORD' '3'
 Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' 'NoAutoUpdate' 'REG_DWORD' '1'
 Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' 'AUOptions' 'REG_DWORD' '2'
 Set-RegistryValue 'HKLM\zSOFTWARE\Policies\Microsoft\Windows\WindowsUpdate\AU' 'ScheduledInstallDay' 'REG_DWORD' '0'
@@ -1589,6 +1585,8 @@ Set-RegistryValueIfPossible 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVers
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'TaskbarGlomLevel' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'MMTaskbarGlomLevel' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'SearchboxTaskbarMode' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Search' 'SearchboxTaskbarMode' 'REG_DWORD' '1'
+Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Search' 'SearchboxTaskbarModeCache' 'REG_DWORD' '1'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'ShowTaskViewButton' 'REG_DWORD' '0'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'Start_Layout' 'REG_DWORD' '1'
 Set-RegistryValue 'HKLM\zNTUSER\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced' 'TaskbarMn' 'REG_DWORD' '0'

@@ -214,7 +214,8 @@ function Set-LotusOfflineUserDefaults {
     param(
         [string]$NtUserHive,
         [string]$DefaultHive,
-        [string]$SoftwareHive
+        [string]$SoftwareHive,
+        [string]$SystemHive
     )
 
     $advanced = "$NtUserHive\Software\Microsoft\Windows\CurrentVersion\Explorer\Advanced"
@@ -226,10 +227,22 @@ function Set-LotusOfflineUserDefaults {
     Set-RegValue $advanced 'TaskbarGlomLevel' 'REG_DWORD' '0'
     Set-RegValue $advanced 'MMTaskbarGlomLevel' 'REG_DWORD' '0'
     Set-RegValue $advanced 'SearchboxTaskbarMode' 'REG_DWORD' '1'
+    Set-RegValue "$NtUserHive\Software\Microsoft\Windows\CurrentVersion\Search" 'SearchboxTaskbarMode' 'REG_DWORD' '1'
+    Set-RegValue "$NtUserHive\Software\Microsoft\Windows\CurrentVersion\Search" 'SearchboxTaskbarModeCache' 'REG_DWORD' '1'
     Set-RegValue $advanced 'ShowTaskViewButton' 'REG_DWORD' '0'
     Set-RegValue $advanced 'Start_Layout' 'REG_DWORD' '1'
     Set-RegValue $advanced 'TaskbarMn' 'REG_DWORD' '0'
     Set-RegValue "$NtUserHive\Software\Microsoft\Windows\CurrentVersion\Explorer" 'link' 'REG_BINARY' '00000000'
+
+    foreach ($localeHive in @($NtUserHive, $DefaultHive)) {
+        Set-RegValue "$localeHive\Control Panel\International" 'iTime' 'REG_SZ' '1'
+        Set-RegValue "$localeHive\Control Panel\International" 'iTLZero' 'REG_SZ' '1'
+        Set-RegValue "$localeHive\Control Panel\International" 'sShortTime' 'REG_SZ' 'HH:mm'
+        Set-RegValue "$localeHive\Control Panel\International" 'sTimeFormat' 'REG_SZ' 'HH:mm:ss'
+    }
+
+    Set-RegValue "$SystemHive\ControlSet001\Control\Session Manager\Memory Management" 'FeatureSettingsOverride' 'REG_DWORD' '3'
+    Set-RegValue "$SystemHive\ControlSet001\Control\Session Manager\Memory Management" 'FeatureSettingsOverrideMask' 'REG_DWORD' '3'
 
     foreach ($themeHive in @($NtUserHive, $DefaultHive)) {
         Set-RegValue "$themeHive\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" 'AppsUseLightTheme' 'REG_DWORD' '1'
@@ -323,6 +336,25 @@ try {
     Set-Content -Path (Join-Path $scriptsRoot 'SetupComplete.cmd') -Value (Get-HereStringVariable -Text $makerText -Name 'setupComplete') -Encoding ASCII
     Remove-Item -LiteralPath (Join-Path $lotusRoot 'LotusFirstLogon.vbs'), (Join-Path $lotusRoot 'LotusUserDefaults.vbs') -Force -ErrorAction SilentlyContinue
 
+    $repoWallpaperRoot = Join-Path $RepoRoot 'payload\Wallpapers'
+    $wallpaperSource = $null
+    if (Test-Path -LiteralPath $repoWallpaperRoot) {
+        $wallpaperSource = Get-ChildItem -LiteralPath $repoWallpaperRoot -File |
+            Where-Object { $_.Extension -in '.jpg', '.jpeg' } |
+            Sort-Object Name |
+            Select-Object -First 1
+    }
+    if ($wallpaperSource) {
+        $safeWallpaperRoot = Join-Path $mountDir 'Windows\Web\Wallpaper\Lotus'
+        $setupWallpaperRoot = Join-Path $lotusRoot 'Wallpapers'
+        New-Item -ItemType Directory -Force -Path $safeWallpaperRoot, $setupWallpaperRoot | Out-Null
+        Copy-Item -LiteralPath $wallpaperSource.FullName -Destination (Join-Path $safeWallpaperRoot 'LotusDefault.jpg') -Force
+        Copy-Item -LiteralPath $wallpaperSource.FullName -Destination (Join-Path $setupWallpaperRoot 'LotusDefault.jpg') -Force
+        Write-Log "Patched Lotus wallpaper into $safeWallpaperRoot."
+    } else {
+        Write-Log "No repository wallpaper found at $repoWallpaperRoot."
+    }
+
     Write-Status -Status 'running' -Step 'patch store payload'
     $repoStorePayload = Join-Path $RepoRoot 'payload\Store'
     $imageStorePayload = Join-Path $lotusRoot 'Store'
@@ -339,7 +371,8 @@ try {
     $ntUser = Load-Hive -Name 'LotusQuick_NTUSER' -Path (Join-Path $mountDir 'Users\Default\ntuser.dat')
     $defaultHive = Load-Hive -Name 'LotusQuick_DEFAULT' -Path (Join-Path $mountDir 'Windows\System32\config\default')
     $softwareHive = Load-Hive -Name 'LotusQuick_SOFTWARE' -Path (Join-Path $mountDir 'Windows\System32\config\SOFTWARE')
-    Set-LotusOfflineUserDefaults -NtUserHive $ntUser -DefaultHive $defaultHive -SoftwareHive $softwareHive
+    $systemHive = Load-Hive -Name 'LotusQuick_SYSTEM' -Path (Join-Path $mountDir 'Windows\System32\config\SYSTEM')
+    Set-LotusOfflineUserDefaults -NtUserHive $ntUser -DefaultHive $defaultHive -SoftwareHive $softwareHive -SystemHive $systemHive
     Unload-Hives
 
     Write-Status -Status 'running' -Step 'commit wim'
