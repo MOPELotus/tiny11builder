@@ -21,7 +21,7 @@ function Write-Log {
 
     $line = '[{0}] {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $Message
     Add-Content -Path $logPath -Value $line -Encoding UTF8
-    Write-Output $line
+    Write-Host $line
 }
 
 function Write-Status {
@@ -51,11 +51,29 @@ function Invoke-Logged {
     )
 
     Write-Log ("RUN {0} {1}" -f $FilePath, ($ArgumentList -join ' '))
-    & $FilePath @ArgumentList 2>&1 | ForEach-Object { Write-Log ($_ | Out-String).TrimEnd() }
-    $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
-    Write-Log "EXIT $exitCode"
-    if ($exitCode -gt $AllowedExitCodeMax) {
-        throw "$FilePath exited with code $exitCode"
+    $previousErrorActionPreference = $ErrorActionPreference
+    $hadNativeErrorActionPreference = Test-Path variable:PSNativeCommandUseErrorActionPreference
+    if ($hadNativeErrorActionPreference) {
+        $previousNativeErrorActionPreference = $PSNativeCommandUseErrorActionPreference
+    }
+
+    try {
+        $ErrorActionPreference = 'Continue'
+        if ($hadNativeErrorActionPreference) {
+            $PSNativeCommandUseErrorActionPreference = $false
+        }
+
+        & $FilePath @ArgumentList 2>&1 | ForEach-Object { Write-Log ($_ | Out-String).TrimEnd() }
+        $exitCode = if ($null -eq $LASTEXITCODE) { 0 } else { $LASTEXITCODE }
+        Write-Log "EXIT $exitCode"
+        if ($exitCode -gt $AllowedExitCodeMax) {
+            throw "$FilePath exited with code $exitCode"
+        }
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+        if ($hadNativeErrorActionPreference) {
+            $PSNativeCommandUseErrorActionPreference = $previousNativeErrorActionPreference
+        }
     }
 }
 
@@ -104,6 +122,21 @@ function Set-RegValue {
     Invoke-Logged -FilePath reg.exe -ArgumentList @('add', $Path, '/v', $Name, '/t', $Type, '/d', $Value, '/f')
 }
 
+function Set-RegValueIfPossible {
+    param(
+        [string]$Path,
+        [string]$Name,
+        [string]$Type,
+        [string]$Value
+    )
+
+    try {
+        Set-RegValue $Path $Name $Type $Value
+    } catch {
+        Write-Log "Skipped optional registry value: $Path\$Name ($($_.Exception.Message))"
+    }
+}
+
 function Set-RegDefaultValue {
     param(
         [string]$Path,
@@ -120,8 +153,12 @@ function Set-RegDefaultValue {
 function Remove-RegKey {
     param([string]$Path)
 
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     & reg.exe query $Path *> $null
-    if ($LASTEXITCODE -ne 0) {
+    $queryExitCode = $LASTEXITCODE
+    $ErrorActionPreference = $previousErrorActionPreference
+    if ($queryExitCode -ne 0) {
         Write-Log "Registry key already absent: $Path"
         return
     }
@@ -134,8 +171,12 @@ function Remove-RegNamedValue {
         [string]$Name
     )
 
+    $previousErrorActionPreference = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
     & reg.exe query $Path /v $Name *> $null
-    if ($LASTEXITCODE -ne 0) {
+    $queryExitCode = $LASTEXITCODE
+    $ErrorActionPreference = $previousErrorActionPreference
+    if ($queryExitCode -ne 0) {
         Write-Log "Registry value already absent: $Path\$Name"
         return
     }
@@ -150,13 +191,13 @@ function Load-Hive {
 
     $hivePath = "HKLM\$Name"
     if (Test-Path -LiteralPath "Registry::HKEY_LOCAL_MACHINE\$Name") {
-        Write-Log "Unloading stale hive before reload: $hivePath"
-        Invoke-Logged -FilePath reg.exe -ArgumentList @('unload', $hivePath)
+        Write-Log "Unloading stale hive before reload: $hivePath" | Out-Null
+        Invoke-Logged -FilePath reg.exe -ArgumentList @('unload', $hivePath) | Out-Null
     } else {
-        Write-Log "No stale hive loaded for $hivePath."
+        Write-Log "No stale hive loaded for $hivePath." | Out-Null
     }
 
-    Invoke-Logged -FilePath reg.exe -ArgumentList @('load', $hivePath, $Path)
+    Invoke-Logged -FilePath reg.exe -ArgumentList @('load', $hivePath, $Path) | Out-Null
     $loadedHives.Add($hivePath)
     return $hivePath
 }
@@ -181,7 +222,7 @@ function Set-LotusOfflineUserDefaults {
     Set-RegValue $advanced 'HideFileExt' 'REG_DWORD' '0'
     Set-RegValue $advanced 'ShowSecondsInSystemClock' 'REG_DWORD' '1'
     Set-RegValue $advanced 'TaskbarAl' 'REG_DWORD' '0'
-    Set-RegValue $advanced 'TaskbarDa' 'REG_DWORD' '0'
+    Set-RegValueIfPossible $advanced 'TaskbarDa' 'REG_DWORD' '0'
     Set-RegValue $advanced 'TaskbarGlomLevel' 'REG_DWORD' '0'
     Set-RegValue $advanced 'MMTaskbarGlomLevel' 'REG_DWORD' '0'
     Set-RegValue $advanced 'SearchboxTaskbarMode' 'REG_DWORD' '1'
@@ -243,12 +284,18 @@ try {
     }
 
     Write-Status -Status 'running' -Step 'copy iso'
+    $existingSourceMount = Get-DiskImage -ImagePath $SourceIso -ErrorAction SilentlyContinue
+    if ($existingSourceMount -and $existingSourceMount.Attached) {
+        Write-Log "Dismounting previously mounted source ISO: $SourceIso"
+        Dismount-DiskImage -ImagePath $SourceIso | Out-Null
+        Start-Sleep -Seconds 1
+    }
     $disk = Mount-DiskImage -ImagePath $SourceIso -PassThru
     $mountedIso = $true
     Start-Sleep -Seconds 2
     $drive = Get-IsoDriveLetter -ImagePath $SourceIso
     Write-Log "Mounted source ISO as $drive`:"
-    Invoke-Logged -FilePath robocopy.exe -ArgumentList @("$drive`:\", $isoRoot, '/E', '/COPY:DAT', '/R:1', '/W:1') -AllowedExitCodeMax 7
+    Invoke-Logged -FilePath robocopy.exe -ArgumentList @("$drive`:\", $isoRoot, '/E', '/COPY:DAT', '/R:1', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS', '/NP') -AllowedExitCodeMax 7
     Dismount-DiskImage -ImagePath $SourceIso | Out-Null
     $mountedIso = $false
 
