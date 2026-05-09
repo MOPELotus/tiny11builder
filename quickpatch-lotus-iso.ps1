@@ -2,6 +2,7 @@ param(
     [string]$SourceIso = 'C:\Users\Lotus\Downloads\26200.8328_amd64_zh-cn_professional_2de8f468_convert_virtual\Lotus_tiny11_26100_ProWorkstation_zh-cn.iso',
     [string]$RepoRoot = 'C:\Users\Lotus\tiny11builder',
     [string]$UupRoot = 'C:\Users\Lotus\Downloads\26200.8328_amd64_zh-cn_professional_2de8f468_convert_virtual',
+    [string]$OfficeToolRoot = $(if ($env:LOTUS_OFFICE_TOOL_ROOT) { $env:LOTUS_OFFICE_TOOL_ROOT } else { 'D:\Apps\Office_Tool_with_runtime_v10.6.2.0_x64\Office Tool' }),
     [string]$OutputIso = ''
 )
 
@@ -84,6 +85,25 @@ function Assert-Admin {
         throw 'Quick patch must run elevated.'
     }
     Write-Log "Running elevated as $($identity.Name)"
+}
+
+function Stage-LotusOfficePayload {
+    param([string]$LotusRoot)
+
+    $setupSource = Join-Path $OfficeToolRoot 'files\setup.exe'
+    $officeSource = Join-Path $OfficeToolRoot 'Office'
+    $officeData = Join-Path $officeSource 'Data'
+    if ((-not (Test-Path -LiteralPath $setupSource)) -or (-not (Test-Path -LiteralPath $officeData))) {
+        Write-Log "No complete Office payload found at $OfficeToolRoot."
+        return
+    }
+
+    $targetRoot = Join-Path $LotusRoot 'Office'
+    Write-Log "Replacing Office payload from $OfficeToolRoot."
+    Remove-Item -LiteralPath $targetRoot -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $targetRoot | Out-Null
+    Copy-Item -LiteralPath $setupSource -Destination (Join-Path $targetRoot 'setup.exe') -Force
+    Invoke-Logged -FilePath robocopy.exe -ArgumentList @($officeSource, (Join-Path $targetRoot 'Office'), '/E', '/COPY:DAT', '/R:1', '/W:1', '/NFL', '/NDL', '/NJH', '/NJS', '/NP') -AllowedExitCodeMax 7
 }
 
 function Get-IsoDriveLetter {
@@ -354,6 +374,9 @@ try {
     } else {
         Write-Log "No repository wallpaper found at $repoWallpaperRoot."
     }
+
+    Write-Status -Status 'running' -Step 'patch office payload'
+    Stage-LotusOfficePayload -LotusRoot $lotusRoot
 
     Write-Status -Status 'running' -Step 'patch store payload'
     $repoStorePayload = Join-Path $RepoRoot 'payload\Store'

@@ -39,6 +39,7 @@ if (-not $SCRATCH) {
     $ScratchDisk = Join-Path ($SCRATCH + ":\") 'tiny11builder-work'
 }
 $ScratchDisk = $ScratchDisk -replace '[\\]+$', ''
+$LotusOfficeToolRoot = if ($env:LOTUS_OFFICE_TOOL_ROOT) { $env:LOTUS_OFFICE_TOOL_ROOT } else { 'D:\Apps\Office_Tool_with_runtime_v10.6.2.0_x64\Office Tool' }
 
 #---------[ Functions ]---------#
 function Set-RegistryValue {
@@ -304,6 +305,28 @@ function Set-LotusDefaultWallpaper {
                 }
             }
     }
+}
+
+function Add-LotusOfficePayload {
+    param (
+        [string]$MountPath,
+        [string]$OfficeToolRoot
+    )
+
+    $setupSource = Join-Path $OfficeToolRoot 'files\setup.exe'
+    $officeSource = Join-Path $OfficeToolRoot 'Office'
+    $officeData = Join-Path $officeSource 'Data'
+    if ((-not (Test-Path -LiteralPath $setupSource)) -or (-not (Test-Path -LiteralPath $officeData))) {
+        Write-Output "No complete Office payload found at $OfficeToolRoot."
+        return
+    }
+
+    $targetRoot = Join-Path $MountPath 'Windows\Setup\Lotus\Office'
+    Write-Output "Staging Lotus Office payload from $OfficeToolRoot"
+    Remove-Item -LiteralPath $targetRoot -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Force -Path $targetRoot | Out-Null
+    Copy-Item -LiteralPath $setupSource -Destination (Join-Path $targetRoot 'setup.exe') -Force -ErrorAction Stop
+    Copy-Item -LiteralPath $officeSource -Destination (Join-Path $targetRoot 'Office') -Recurse -Force -ErrorAction Stop
 }
 
 function Add-LotusSetupPayload {
@@ -753,6 +776,78 @@ function Start-LotusXboxInstaller {
     Write-LotusAppxState -LogPath $xboxLog -Scope 'after Xbox installer'
 }
 
+function Install-LotusOfficePayload {
+    $officeLog = Join-Path $root 'OfficeInstall.log'
+    $officeRoot = Join-Path $root 'Office'
+    $setupPath = Join-Path $officeRoot 'setup.exe'
+    $dataRoot = Join-Path $officeRoot 'Office\Data'
+
+    if ((-not (Test-Path $setupPath)) -or (-not (Test-Path $dataRoot))) {
+        Write-LotusFileLog $officeLog "No Office payload found at $officeRoot."
+        return
+    }
+
+    $clickToRunConfig = Get-ItemProperty -Path 'HKLM:\SOFTWARE\Microsoft\Office\ClickToRun\Configuration' -ErrorAction SilentlyContinue
+    if ($clickToRunConfig -and $clickToRunConfig.ProductReleaseIds -match 'Mondo') {
+        Write-LotusFileLog $officeLog "Office Mondo already appears installed: $($clickToRunConfig.ProductReleaseIds)."
+        return
+    }
+
+    $versionDir = Get-ChildItem -LiteralPath $dataRoot -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -match '^16\.' } |
+        Sort-Object Name -Descending |
+        Select-Object -First 1
+    $versionAttribute = ''
+    if ($versionDir) {
+        $versionAttribute = ' Version="' + $versionDir.Name + '"'
+    }
+
+    $sourcePath = [System.Security.SecurityElement]::Escape($officeRoot)
+    $configPath = Join-Path $officeRoot 'LotusOffice-MondoVolume.xml'
+    $configXml = @"
+<Configuration>
+  <Add SourcePath="$sourcePath" OfficeClientEdition="64" Channel="Current"$versionAttribute AllowCdnFallback="FALSE">
+    <Product ID="MondoVolume">
+      <Language ID="zh-cn" />
+      <ExcludeApp ID="Lync" />
+      <ExcludeApp ID="Teams" />
+      <ExcludeApp ID="OneDrive" />
+    </Product>
+  </Add>
+  <Updates Enabled="FALSE" />
+  <Display Level="None" AcceptEULA="TRUE" />
+  <Property Name="AUTOACTIVATE" Value="0" />
+  <Property Name="FORCEAPPSHUTDOWN" Value="TRUE" />
+  <Property Name="SharedComputerLicensing" Value="0" />
+  <Logging Level="Standard" Path="$root" />
+</Configuration>
+"@
+    Set-Content -LiteralPath $configPath -Value $configXml -Encoding ASCII
+
+    Write-LotusFileLog $officeLog "Starting Office MondoVolume install from $officeRoot."
+    Write-LotusFileLog $officeLog "Office configuration: $configPath"
+    try {
+        $signature = Get-AuthenticodeSignature -FilePath $setupPath
+        Write-LotusFileLog $officeLog "Office setup signature: $($signature.Status), signer: $($signature.SignerCertificate.Subject)"
+    } catch {
+        Write-LotusFileLog $officeLog "Office setup signature check failed: $($_.Exception.Message)"
+    }
+
+    try {
+        $process = Start-Process -FilePath $setupPath -ArgumentList "/configure `"$configPath`"" -Wait -PassThru -WindowStyle Hidden
+        Write-LotusFileLog $officeLog "Office setup exit code: $($process.ExitCode)"
+        if ($process.ExitCode -eq 0) {
+            New-Item -Path 'HKLM:\SOFTWARE\Lotus\Office' -Force | Out-Null
+            New-ItemProperty -Path 'HKLM:\SOFTWARE\Lotus\Office' -Name 'Installed' -PropertyType DWord -Value 1 -Force | Out-Null
+            New-ItemProperty -Path 'HKLM:\SOFTWARE\Lotus\Office' -Name 'InstalledAt' -PropertyType String -Value (Get-Date -Format s) -Force | Out-Null
+            Remove-Item -LiteralPath $officeRoot -Recurse -Force -ErrorAction SilentlyContinue
+            Write-LotusFileLog $officeLog 'Removed staged Office payload after successful install.'
+        }
+    } catch {
+        Write-LotusFileLog $officeLog "Office setup failed: $($_.Exception.Message)"
+    }
+}
+
 function Set-LotusCurrentUserRegValue {
     param (
         [string]$Path,
@@ -929,7 +1024,7 @@ function Invoke-LotusFirstLogonSetup {
         Write-LotusFileLog $logPath 'Waiting 60 seconds for Explorer, network, and AppX services to settle.'
         Start-Sleep -Seconds 60
 
-        Write-LotusFileLog $logPath '[1/4] Restoring Microsoft Store components.'
+        Write-LotusFileLog $logPath '[1/5] Restoring Microsoft Store components.'
         if (Test-LotusLtscStorePayload) {
             Invoke-LotusLtscStoreScript -Stage 'FirstLogonVisible'
         } else {
@@ -937,13 +1032,16 @@ function Invoke-LotusFirstLogonSetup {
             Start-LotusMicrosoftStoreInstaller
         }
 
-        Write-LotusFileLog $logPath '[2/4] Repairing Microsoft Store registration.'
+        Write-LotusFileLog $logPath '[2/5] Repairing Microsoft Store registration.'
         Repair-LotusMicrosoftStore
 
-        Write-LotusFileLog $logPath '[3/4] Starting Xbox installer.'
+        Write-LotusFileLog $logPath '[3/5] Starting Xbox installer.'
         Start-LotusXboxInstaller
 
-        Write-LotusFileLog $logPath '[4/4] Capturing final Store/Xbox AppX state.'
+        Write-LotusFileLog $logPath '[4/5] Installing Office MondoVolume.'
+        Install-LotusOfficePayload
+
+        Write-LotusFileLog $logPath '[5/5] Capturing final Store/Xbox AppX state.'
         Write-LotusAppxState -LogPath $logPath -Scope 'after visible first-logon setup'
 
         New-Item -Path 'HKLM:\SOFTWARE\Lotus\FirstLogon' -Force | Out-Null
@@ -1486,6 +1584,7 @@ New-Item -ItemType Directory -Force -Path "$ScratchDisk\scratchdir\Windows\Panth
 Copy-Item -Path "$PSScriptRoot\autounattend.xml" -Destination "$ScratchDisk\scratchdir\Windows\Panther\Unattend.xml" -Force | Out-Null
 Add-LotusSetupPayload -MountPath "$ScratchDisk\scratchdir" -PayloadSource "$PSScriptRoot\payload"
 Set-LotusDefaultWallpaper -MountPath "$ScratchDisk\scratchdir" -PayloadSource "$PSScriptRoot\payload"
+Add-LotusOfficePayload -MountPath "$ScratchDisk\scratchdir" -OfficeToolRoot $LotusOfficeToolRoot
 
 Write-Output "Disabling Reserved Storage:"
 Set-RegistryValue 'HKLM\zSOFTWARE\Microsoft\Windows\CurrentVersion\ReserveManager' 'ShippedWithReserves' 'REG_DWORD' '0'
